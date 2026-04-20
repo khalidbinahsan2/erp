@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { staff as initialStaff, roles, orders } from '@/lib/mockData';
 import { Staff } from '@/types';
 
@@ -239,7 +240,11 @@ export default function StaffPage() {
                   const hasOvertime = (salary?.overtimeHours || 0) > 0;
                   return (
                     <tr key={member.id}>
-                      <td>{member.name}</td>
+                      <td>
+                        <Link href={`/staff/${member.id}`} style={{ color: 'var(--primary)', fontWeight: '600', textDecoration: 'none' }}>
+                          {member.name}
+                        </Link>
+                      </td>
                       <td>
                         <span className="badge badge-in_progress">{member.role}</span>
                       </td>
