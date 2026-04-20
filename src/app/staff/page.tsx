@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { staff as initialStaff, roles, orders } from '@/lib/mockData';
 import { Staff } from '@/types';
 
@@ -188,8 +189,9 @@ export default function StaffPage() {
 
       <div className="tabs">
         <button className={`tab ${view === 'list' ? 'active' : ''}`} onClick={() => setView('list')}>Staff List</button>
-        <button className={`tab ${view === 'schedule' ? 'active' : ''}`} onClick={() => setView('schedule')}>Weekly Schedule</button>
+        <button className={`tab ${view === 'schedule' ? 'active' : ''}`} onClick={() => setView('schedule')}>Schedule</button>
         <button className={`tab ${view === 'performance' ? 'active' : ''}`} onClick={() => setView('performance')}>Performance</button>
+        <Link href="/staff/attendance" className="tab">Attendance</Link>
       </div>
 
       {view === 'list' && (
