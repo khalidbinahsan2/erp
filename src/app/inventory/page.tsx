@@ -18,14 +18,28 @@ interface PurchaseOrder {
   notes: string;
 }
 
+interface StockMovement {
+  id: string;
+  itemId: string;
+  itemName: string;
+  type: 'received' | 'used' | 'adjustment' | 'waste' | 'transfer';
+  quantity: number;
+  previousQty: number;
+  newQty: number;
+  date: string;
+  notes: string;
+  reference?: string;
+}
+
 export default function InventoryPage() {
   const [items, setItems] = useState<InventoryItem[]>(initialInventory);
-  const [view, setView] = useState<'list' | 'low-stock' | 'valuation' | 'orders'>('list');
+  const [view, setView] = useState<'list' | 'low-stock' | 'valuation' | 'orders' | 'movements'>('list');
   const [searchTerm, setSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [showModal, setShowModal] = useState(false);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [showOrderModal, setShowOrderModal] = useState(false);
+  const [showMovementModal, setShowMovementModal] = useState(false);
   const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null);
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
   const [selectedItems, setSelectedItems] = useState<string[]>([]);
@@ -38,6 +52,27 @@ export default function InventoryPage() {
     { id: 'PO-002', items: [{ itemId: '2', name: 'Atlantic Salmon', quantity: 10, cost: 180 }], total: 180, status: 'received', supplier: 'Ocean Catch', createdAt: '2024-04-18', notes: '' },
   ]);
   const [orderStatusFilter, setOrderStatusFilter] = useState('all');
+
+  // Stock movements state
+  const [stockMovements, setStockMovements] = useState<StockMovement[]>([
+    { id: 'SM-001', itemId: '1', itemName: 'Arborio Rice', type: 'received', quantity: 20, previousQty: 10, newQty: 30, date: '2024-04-20', notes: 'Weekly delivery', reference: 'PO-001' },
+    { id: 'SM-002', itemId: '1', itemName: 'Arborio Rice', type: 'used', quantity: -5, previousQty: 30, newQty: 25, date: '2024-04-19', notes: 'Daily prep' },
+    { id: 'SM-003', itemId: '2', itemName: 'Atlantic Salmon', type: 'used', quantity: -3, previousQty: 15, newQty: 12, date: '2024-04-20', notes: 'Lunch service' },
+    { id: 'SM-004', itemId: '3', itemName: 'Olive Oil', type: 'waste', quantity: -2, previousQty: 8, newQty: 6, date: '2024-04-18', notes: 'Expired oil' },
+    { id: 'SM-005', itemId: '4', itemName: 'Parmesan', type: 'adjustment', quantity: -1, previousQty: 5, newQty: 4, date: '2024-04-17', notes: 'Inventory count correction' },
+  ]);
+  const [movementFilter, setMovementFilter] = useState('all');
+  const [movementItemFilter, setMovementItemFilter] = useState('all');
+  const [movementDateFilter, setMovementDateFilter] = useState('');
+
+  // Movement form state
+  const [movementForm, setMovementForm] = useState({
+    itemId: '',
+    type: 'received' as StockMovement['type'],
+    quantity: '',
+    notes: '',
+    reference: ''
+  });
 
   // Restock modal state
   const [showRestockModal, setShowRestockModal] = useState(false);
@@ -289,6 +324,65 @@ export default function InventoryPage() {
   const pendingTotal = getOrdersByStatus('pending').reduce((sum, o) => sum + o.total, 0);
   const orderedTotal = getOrdersByStatus('ordered').reduce((sum, o) => sum + o.total, 0);
 
+  // Stock movement functions
+  const getFilteredMovements = () => {
+    return stockMovements.filter(m => {
+      const matchesType = movementFilter === 'all' || m.type === movementFilter;
+      const matchesItem = movementItemFilter === 'all' || m.itemId === movementItemFilter;
+      const matchesDate = !movementDateFilter || m.date === movementDateFilter;
+      return matchesType && matchesItem && matchesDate;
+    }).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  };
+
+  const openMovementModal = () => {
+    setMovementForm({ itemId: '', type: 'received', quantity: '', notes: '', reference: '' });
+    setShowMovementModal(true);
+  };
+
+  const saveMovement = () => {
+    const item = items.find(i => i.id === movementForm.itemId);
+    if (!item || !movementForm.quantity || parseInt(movementForm.quantity) === 0) return;
+
+    const qty = parseInt(movementForm.quantity);
+    let qtyChange = qty;
+
+    // For non-received types, treat positive input as reduction
+    if (movementForm.type !== 'received') {
+      qtyChange = -Math.abs(qty);
+    }
+
+    const previousQty = item.quantity;
+    const newQty = Math.max(0, previousQty + qtyChange);
+
+    const newMovement: StockMovement = {
+      id: `SM-${String(stockMovements.length + 1).padStart(3, '0')}`,
+      itemId: item.id,
+      itemName: item.name,
+      type: movementForm.type,
+      quantity: qtyChange,
+      previousQty,
+      newQty,
+      date: new Date().toISOString().split('T')[0],
+      notes: movementForm.notes,
+      reference: movementForm.reference || undefined
+    };
+
+    setStockMovements([...stockMovements, newMovement]);
+    adjustQuantity(item.id, qtyChange);
+    setShowMovementModal(false);
+  };
+
+  const getMovementTypeColor = (type: StockMovement['type']) => {
+    switch (type) {
+      case 'received': return 'badge-available';
+      case 'used': return 'badge-in_progress';
+      case 'adjustment': return 'badge-pending';
+      case 'waste': return 'badge-cancelled';
+      case 'transfer': return 'badge-warning';
+      default: return '';
+    }
+  };
+
   return (
     <>
       <div className="page-header">
@@ -316,6 +410,9 @@ export default function InventoryPage() {
           Orders {purchaseOrders.filter(o => o.status === 'pending' || o.status === 'ordered').length > 0 && `(${purchaseOrders.filter(o => o.status === 'pending' || o.status === 'ordered').length})`}
         </button>
         <button className={`tab ${view === 'valuation' ? 'active' : ''}`} onClick={() => setView('valuation')}>Valuation</button>
+        <button className={`tab ${view === 'movements' ? 'active' : ''}`} onClick={() => setView('movements')}>
+          Movements {stockMovements.length > 0 && `(${stockMovements.length})`}
+        </button>
       </div>
 
       {view === 'list' && (
@@ -619,6 +716,79 @@ export default function InventoryPage() {
         </div>
       )}
 
+      {view === 'movements' && (
+        <>
+          <div style={{ marginBottom: '24px', display: 'flex', gap: '16px', alignItems: 'center', flexWrap: 'wrap' }}>
+            <button className="btn btn-primary" onClick={openMovementModal}>+ Record Movement</button>
+            <select className="form-select" style={{ width: '150px' }} value={movementFilter} onChange={e => setMovementFilter(e.target.value)}>
+              <option value="all">All Types</option>
+              <option value="received">Received</option>
+              <option value="used">Used</option>
+              <option value="adjustment">Adjustment</option>
+              <option value="waste">Waste</option>
+              <option value="transfer">Transfer</option>
+            </select>
+            <select className="form-select" style={{ width: '180px' }} value={movementItemFilter} onChange={e => setMovementItemFilter(e.target.value)}>
+              <option value="all">All Items</option>
+              {items.map(i => (
+                <option key={i.id} value={i.id}>{i.name}</option>
+              ))}
+            </select>
+            <input 
+              type="date" 
+              className="form-input" 
+              style={{ width: '160px' }}
+              value={movementDateFilter} 
+              onChange={e => setMovementDateFilter(e.target.value)}
+            />
+          </div>
+
+          <div className="data-card">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Item</th>
+                  <th>Type</th>
+                  <th>Change</th>
+                  <th>Previous</th>
+                  <th>New</th>
+                  <th>Reference</th>
+                  <th>Notes</th>
+                </tr>
+              </thead>
+              <tbody>
+                {getFilteredMovements().map(movement => (
+                  <tr key={movement.id}>
+                    <td className="mono">{movement.date}</td>
+                    <td>{movement.itemName}</td>
+                    <td>
+                      <span className={`badge ${getMovementTypeColor(movement.type)}`}>
+                        {movement.type}
+                      </span>
+                    </td>
+                    <td className="mono" style={{ color: movement.quantity >= 0 ? 'var(--success)' : 'var(--danger)' }}>
+                      {movement.quantity >= 0 ? '+' : ''}{movement.quantity}
+                    </td>
+                    <td className="mono">{movement.previousQty}</td>
+                    <td className="mono">{movement.newQty}</td>
+                    <td>{movement.reference || '-'}</td>
+                    <td style={{ maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {movement.notes || '-'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {getFilteredMovements().length === 0 && (
+              <div className="empty-state">
+                <div className="empty-state-text">No movements found</div>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
       {/* Add/Edit Modal */}
       <div className={`modal-overlay ${showModal ? 'active' : ''}`} onClick={() => setShowModal(false)}>
         <div className="modal" onClick={e => e.stopPropagation()}>
@@ -801,6 +971,61 @@ export default function InventoryPage() {
           <div className="modal-footer">
             <button className="btn btn-secondary" onClick={() => setShowRestockModal(false)}>Cancel</button>
             <button className="btn btn-primary" onClick={submitRestockOrder}>Create Order</button>
+          </div>
+        </div>
+      </div>
+
+      {/* Stock Movement Modal */}
+      <div className={`modal-overlay ${showMovementModal ? 'active' : ''}`} onClick={() => setShowMovementModal(false)}>
+        <div className="modal" onClick={e => e.stopPropagation()}>
+          <div className="modal-header">
+            <h2 className="modal-title">Record Stock Movement</h2>
+            <button className="modal-close" onClick={() => setShowMovementModal(false)}>×</button>
+          </div>
+          <div className="modal-body">
+            <div className="form-group">
+              <label className="form-label">Item</label>
+              <select className="form-select" value={movementForm.itemId} onChange={e => setMovementForm({ ...movementForm, itemId: e.target.value })}>
+                <option value="">Select item...</option>
+                {items.map(i => (
+                  <option key={i.id} value={i.id}>{i.name} (Current: {i.quantity} {i.unit})</option>
+                ))}
+              </select>
+            </div>
+            <div className="grid-2">
+              <div className="form-group">
+                <label className="form-label">Movement Type</label>
+                <select className="form-select" value={movementForm.type} onChange={e => setMovementForm({ ...movementForm, type: e.target.value as StockMovement['type'] })}>
+                  <option value="received">Received</option>
+                  <option value="used">Used</option>
+                  <option value="adjustment">Adjustment</option>
+                  <option value="waste">Waste</option>
+                  <option value="transfer">Transfer</option>
+                </select>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Quantity</label>
+                <input 
+                  className="form-input" 
+                  type="number" 
+                  value={movementForm.quantity} 
+                  onChange={e => setMovementForm({ ...movementForm, quantity: e.target.value })} 
+                  placeholder={movementForm.type === 'received' ? 'Amount received' : 'Amount used/wasted'}
+                />
+              </div>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Reference (Optional)</label>
+              <input className="form-input" value={movementForm.reference} onChange={e => setMovementForm({ ...movementForm, reference: e.target.value })} placeholder="e.g., PO-001" />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Notes</label>
+              <textarea className="form-input" rows={3} value={movementForm.notes} onChange={e => setMovementForm({ ...movementForm, notes: e.target.value })} placeholder="Additional details..." />
+            </div>
+          </div>
+          <div className="modal-footer">
+            <button className="btn btn-secondary" onClick={() => setShowMovementModal(false)}>Cancel</button>
+            <button className="btn btn-primary" onClick={saveMovement}>Record Movement</button>
           </div>
         </div>
       </div>
