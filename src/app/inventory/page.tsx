@@ -10,9 +10,16 @@ function formatCurrency(value: number): string {
 
 export default function InventoryPage() {
   const [items, setItems] = useState<InventoryItem[]>(initialInventory);
-  const [filter, setFilter] = useState<string>('all');
+  const [view, setView] = useState<'list' | 'low-stock' | 'valuation'>('list');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('all');
   const [showModal, setShowModal] = useState(false);
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null);
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
+  const [selectedItems, setSelectedItems] = useState<string[]>([]);
+  const [sortBy, setSortBy] = useState<'name' | 'quantity' | 'cost'>('name');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
 
   const [formData, setFormData] = useState({
     name: '',
@@ -23,13 +30,42 @@ export default function InventoryPage() {
     costPerUnit: ''
   });
 
-  const filteredItems = filter === 'all' ? items : items.filter(i => i.category === filter);
-
   const getStockStatus = (item: InventoryItem) => {
     if (item.quantity === 0) return 'out-of-stock';
     if (item.quantity <= item.reorderLevel) return 'low-stock';
     return 'ok';
   };
+
+  const filteredItems = items
+    .filter(i => {
+      const matchesSearch = i.name.toLowerCase().includes(searchTerm.toLowerCase());
+      const matchesCategory = categoryFilter === 'all' || i.category === categoryFilter;
+      
+      if (view === 'low-stock') {
+        return matchesSearch && matchesCategory && getStockStatus(i) !== 'ok';
+      }
+      return matchesSearch && matchesCategory;
+    })
+    .sort((a, b) => {
+      let comparison = 0;
+      if (sortBy === 'name') comparison = a.name.localeCompare(b.name);
+      else if (sortBy === 'quantity') comparison = a.quantity - b.quantity;
+      else if (sortBy === 'cost') comparison = a.costPerUnit - b.costPerUnit;
+      return sortOrder === 'asc' ? comparison : -comparison;
+    });
+
+  const lowStockItems = items.filter(i => getStockStatus(i) !== 'ok');
+  const totalValue = items.reduce((sum, i) => sum + (i.quantity * i.costPerUnit), 0);
+  const categoryValues = items.reduce((acc, i) => {
+    acc[i.category] = (acc[i.category] || 0) + (i.quantity * i.costPerUnit);
+    return acc;
+  }, {} as Record<string, number>);
+
+  const usageHistory = [
+    { date: '2024-04-20', action: 'Used', quantity: 2, notes: 'Daily prep' },
+    { date: '2024-04-19', action: 'Restocked', quantity: 10, notes: 'Weekly delivery' },
+    { date: '2024-04-18', action: 'Used', quantity: 5, notes: 'Weekend rush' },
+  ];
 
   const openAddModal = () => {
     setEditingItem(null);
@@ -48,6 +84,11 @@ export default function InventoryPage() {
       costPerUnit: item.costPerUnit.toString()
     });
     setShowModal(true);
+  };
+
+  const openHistoryModal = (item: InventoryItem) => {
+    setSelectedItem(item);
+    setShowHistoryModal(true);
   };
 
   const saveItem = () => {
@@ -78,78 +119,281 @@ export default function InventoryPage() {
     setShowModal(false);
   };
 
-  const lowStockCount = items.filter(i => i.quantity <= i.reorderLevel).length;
+  const adjustQuantity = (itemId: string, adjustment: number) => {
+    setItems(items.map(i => i.id === itemId ? { ...i, quantity: Math.max(0, i.quantity + adjustment) } : i));
+  };
+
+  const deleteItem = (itemId: string) => {
+    if (confirm('Are you sure you want to delete this item?')) {
+      setItems(items.filter(i => i.id !== itemId));
+    }
+  };
+
+  const toggleSelectItem = (itemId: string) => {
+    setSelectedItems(prev => 
+      prev.includes(itemId) ? prev.filter(id => id !== itemId) : [...prev, itemId]
+    );
+  };
+
+  const selectAllItems = () => {
+    if (selectedItems.length === filteredItems.length) {
+      setSelectedItems([]);
+    } else {
+      setSelectedItems(filteredItems.map(i => i.id));
+    }
+  };
+
+  const deleteSelectedItems = () => {
+    if (confirm(`Delete ${selectedItems.length} selected items?`)) {
+      setItems(items.filter(i => !selectedItems.includes(i.id)));
+      setSelectedItems([]);
+    }
+  };
+
+  const exportInventory = () => {
+    const headers = ['Name', 'Category', 'Quantity', 'Unit', 'Reorder Level', 'Cost/Unit', 'Total Value'];
+    const rows = items.map(i => [i.name, i.category, i.quantity, i.unit, i.reorderLevel, i.costPerUnit, i.quantity * i.costPerUnit]);
+    const csv = [headers, ...rows].map(row => row.join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'inventory_data.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   return (
     <>
       <div className="page-header">
         <h1 className="page-title">Inventory</h1>
-        {lowStockCount > 0 && (
-          <span className="badge badge-pending" style={{ fontSize: '14px' }}>
-            {lowStockCount} items low on stock
-          </span>
-        )}
-        <button className="btn btn-primary" onClick={openAddModal}>
-          + Add Item
+        <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
+          {lowStockItems.length > 0 && (
+            <span className="badge badge-pending" style={{ fontSize: '14px' }}>
+              {lowStockItems.length} items low on stock
+            </span>
+          )}
+          <button className="btn btn-secondary" onClick={exportInventory}>Export CSV</button>
+          <button className="btn btn-primary" onClick={openAddModal}>
+            + Add Item
+          </button>
+        </div>
+      </div>
+
+      <div className="tabs">
+        <button className={`tab ${view === 'list' ? 'active' : ''}`} onClick={() => setView('list')}>All Items</button>
+        <button className={`tab ${view === 'low-stock' ? 'active' : ''}`} onClick={() => setView('low-stock')}>
+          Low Stock {lowStockItems.length > 0 && `(${lowStockItems.length})`}
         </button>
+        <button className={`tab ${view === 'valuation' ? 'active' : ''}`} onClick={() => setView('valuation')}>Valuation</button>
       </div>
 
-      <div className="filter-bar">
-        <button className={`filter-btn ${filter === 'all' ? 'active' : ''}`} onClick={() => setFilter('all')}>All</button>
-        <button className={`filter-btn ${filter === 'Ingredients' ? 'active' : ''}`} onClick={() => setFilter('Ingredients')}>Ingredients</button>
-        <button className={`filter-btn ${filter === 'Supplies' ? 'active' : ''}`} onClick={() => setFilter('Supplies')}>Supplies</button>
-        <button className={`filter-btn ${filter === 'Beverages' ? 'active' : ''}`} onClick={() => setFilter('Beverages')}>Beverages</button>
-      </div>
+      {view === 'list' && (
+        <>
+          <div className="filter-bar">
+            <input 
+              className="form-input" 
+              style={{ width: '300px' }}
+              placeholder="Search items..." 
+              value={searchTerm}
+              onChange={e => setSearchTerm(e.target.value)}
+            />
+            <select className="form-select" style={{ width: '150px' }} value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)}>
+              <option value="all">All Categories</option>
+              <option value="Ingredients">Ingredients</option>
+              <option value="Supplies">Supplies</option>
+              <option value="Beverages">Beverages</option>
+            </select>
+            <select className="form-select" style={{ width: '150px' }} value={sortBy} onChange={e => setSortBy(e.target.value as 'name' | 'quantity' | 'cost')}>
+              <option value="name">Sort by Name</option>
+              <option value="quantity">Sort by Quantity</option>
+              <option value="cost">Sort by Cost</option>
+            </select>
+            <button className="btn btn-secondary" onClick={() => setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}>
+              {sortOrder === 'asc' ? '↑' : '↓'}
+            </button>
+            {selectedItems.length > 0 && (
+              <button className="btn btn-secondary" style={{ color: 'var(--danger)' }} onClick={deleteSelectedItems}>
+                Delete Selected ({selectedItems.length})
+              </button>
+            )}
+          </div>
 
-      <div className="data-card">
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>Item</th>
-              <th>Category</th>
-              <th>Quantity</th>
-              <th>Unit</th>
-              <th>Reorder Level</th>
-              <th>Cost/Unit</th>
-              <th>Status</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filteredItems.map(item => {
-              const stockStatus = getStockStatus(item);
-              return (
-                <tr key={item.id}>
-                  <td>{item.name}</td>
-                  <td>{item.category}</td>
-                  <td className="mono" style={{ color: stockStatus === 'out-of-stock' ? 'var(--danger)' : stockStatus === 'low-stock' ? 'var(--warning)' : 'inherit' }}>
-                    {item.quantity}
-                  </td>
-                  <td>{item.unit}</td>
-                  <td>{item.reorderLevel}</td>
-                  <td className="mono">{formatCurrency(item.costPerUnit)}</td>
-                  <td>
-                    <span className={`badge ${
-                      stockStatus === 'out-of-stock' ? 'badge-cancelled' :
-                      stockStatus === 'low-stock' ? 'badge-pending' :
-                      'badge-available'
-                    }`}>
-                      {stockStatus === 'out-of-stock' ? 'Out of Stock' : stockStatus === 'low-stock' ? 'Low Stock' : 'In Stock'}
-                    </span>
-                  </td>
-                  <td>
-                    <button className="action-btn edit" onClick={() => openEditModal(item)}>Edit</button>
-                    <button className="action-btn" style={{ marginLeft: '8px' }} onClick={() => setItems(items.map(i => i.id === item.id ? { ...i, quantity: i.quantity + i.reorderLevel } : i))}>
-                      Quick Order
-                    </button>
-                  </td>
+          <div className="data-card">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th style={{ width: '40px' }}>
+                    <input type="checkbox" checked={selectedItems.length === filteredItems.length && filteredItems.length > 0} onChange={selectAllItems} />
+                  </th>
+                  <th>Item</th>
+                  <th>Category</th>
+                  <th>Quantity</th>
+                  <th>Unit</th>
+                  <th>Reorder Level</th>
+                  <th>Cost/Unit</th>
+                  <th>Total Value</th>
+                  <th>Status</th>
+                  <th>Actions</th>
                 </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+              </thead>
+              <tbody>
+                {filteredItems.map(item => {
+                  const stockStatus = getStockStatus(item);
+                  return (
+                    <tr key={item.id}>
+                      <td>
+                        <input type="checkbox" checked={selectedItems.includes(item.id)} onChange={() => toggleSelectItem(item.id)} />
+                      </td>
+                      <td>{item.name}</td>
+                      <td>{item.category}</td>
+                      <td className="mono" style={{ color: stockStatus === 'out-of-stock' ? 'var(--danger)' : stockStatus === 'low-stock' ? 'var(--warning)' : 'inherit' }}>
+                        {item.quantity}
+                      </td>
+                      <td>{item.unit}</td>
+                      <td>{item.reorderLevel}</td>
+                      <td className="mono">{formatCurrency(item.costPerUnit)}</td>
+                      <td className="mono">{formatCurrency(item.quantity * item.costPerUnit)}</td>
+                      <td>
+                        <span className={`badge ${
+                          stockStatus === 'out-of-stock' ? 'badge-cancelled' :
+                          stockStatus === 'low-stock' ? 'badge-pending' :
+                          'badge-available'
+                        }`}>
+                          {stockStatus === 'out-of-stock' ? 'Out of Stock' : stockStatus === 'low-stock' ? 'Low Stock' : 'In Stock'}
+                        </span>
+                      </td>
+                      <td>
+                        <button className="action-btn edit" onClick={() => openEditModal(item)}>Edit</button>
+                        <button className="action-btn" style={{ marginLeft: '8px' }} onClick={() => adjustQuantity(item.id, item.reorderLevel)}>
+                          + Add
+                        </button>
+                        <button className="action-btn" style={{ marginLeft: '8px' }} onClick={() => openHistoryModal(item)}>
+                          History
+                        </button>
+                        <button className="action-btn" style={{ marginLeft: '8px', color: 'var(--danger)' }} onClick={() => deleteItem(item.id)}>
+                          Delete
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            {filteredItems.length === 0 && (
+              <div className="empty-state">
+                <div className="empty-state-text">No items found</div>
+              </div>
+            )}
+          </div>
+        </>
+      )}
 
+      {view === 'low-stock' && (
+        <div className="data-card">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Item</th>
+                <th>Category</th>
+                <th>Current Qty</th>
+                <th>Reorder Level</th>
+                <th>Needed</th>
+                <th>Est. Cost</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {lowStockItems.map(item => {
+                const needed = item.reorderLevel - item.quantity + 5;
+                return (
+                  <tr key={item.id}>
+                    <td>{item.name}</td>
+                    <td>{item.category}</td>
+                    <td className="mono" style={{ color: 'var(--danger)' }}>{item.quantity}</td>
+                    <td>{item.reorderLevel}</td>
+                    <td>{needed}</td>
+                    <td className="mono">{formatCurrency(needed * item.costPerUnit)}</td>
+                    <td>
+                      <button className="btn btn-primary" onClick={() => adjustQuantity(item.id, needed)}>
+                        Order Now
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {view === 'valuation' && (
+        <div className="grid-2">
+          <div className="data-card">
+            <div className="data-card-header">
+              <h3 className="data-card-title">Total Inventory Value</h3>
+            </div>
+            <div style={{ padding: '24px', textAlign: 'center' }}>
+              <div className="stat-value" style={{ fontSize: '48px', color: 'var(--primary)' }}>
+                {formatCurrency(totalValue)}
+              </div>
+              <div className="stat-label">Total Value</div>
+            </div>
+          </div>
+
+          <div className="data-card">
+            <div className="data-card-header">
+              <h3 className="data-card-title">Value by Category</h3>
+            </div>
+            <div style={{ padding: '24px' }}>
+              {Object.entries(categoryValues).map(([category, value]) => {
+                const percentage = (value / totalValue) * 100;
+                return (
+                  <div key={category} style={{ marginBottom: '16px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                      <span>{category}</span>
+                      <span className="mono">{formatCurrency(value)} ({percentage.toFixed(1)}%)</span>
+                    </div>
+                    <div style={{ height: '8px', background: 'var(--bg-elevated)', borderRadius: '4px', overflow: 'hidden' }}>
+                      <div style={{ width: `${percentage}%`, height: '100%', background: 'var(--primary)', borderRadius: '4px' }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="data-card" style={{ gridColumn: 'span 2' }}>
+            <div className="data-card-header">
+              <h3 className="data-card-title">Item Valuation Details</h3>
+            </div>
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Item</th>
+                  <th>Category</th>
+                  <th>Quantity</th>
+                  <th>Cost/Unit</th>
+                  <th>Total Value</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.sort((a, b) => (b.quantity * b.costPerUnit) - (a.quantity * a.costPerUnit)).map(item => (
+                  <tr key={item.id}>
+                    <td>{item.name}</td>
+                    <td>{item.category}</td>
+                    <td className="mono">{item.quantity} {item.unit}</td>
+                    <td className="mono">{formatCurrency(item.costPerUnit)}</td>
+                    <td className="mono" style={{ fontWeight: '600' }}>{formatCurrency(item.quantity * item.costPerUnit)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Add/Edit Modal */}
       <div className={`modal-overlay ${showModal ? 'active' : ''}`} onClick={() => setShowModal(false)}>
         <div className="modal" onClick={e => e.stopPropagation()}>
           <div className="modal-header">
@@ -200,6 +444,45 @@ export default function InventoryPage() {
           <div className="modal-footer">
             <button className="btn btn-secondary" onClick={() => setShowModal(false)}>Cancel</button>
             <button className="btn btn-primary" onClick={saveItem}>{editingItem ? 'Save Changes' : 'Add Item'}</button>
+          </div>
+        </div>
+      </div>
+
+      {/* History Modal */}
+      <div className={`modal-overlay ${showHistoryModal ? 'active' : ''}`} onClick={() => setShowHistoryModal(false)}>
+        <div className="modal" onClick={e => e.stopPropagation()}>
+          <div className="modal-header">
+            <h2 className="modal-title">Usage History - {selectedItem?.name}</h2>
+            <button className="modal-close" onClick={() => setShowHistoryModal(false)}>×</button>
+          </div>
+          <div className="modal-body">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Action</th>
+                  <th>Quantity</th>
+                  <th>Notes</th>
+                </tr>
+              </thead>
+              <tbody>
+                {usageHistory.map((entry, index) => (
+                  <tr key={index}>
+                    <td>{entry.date}</td>
+                    <td>
+                      <span className={`badge ${entry.action === 'Restocked' ? 'badge-available' : 'badge-in_progress'}`}>
+                        {entry.action}
+                      </span>
+                    </td>
+                    <td className="mono">{entry.quantity}</td>
+                    <td>{entry.notes}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="modal-footer">
+            <button className="btn btn-secondary" onClick={() => setShowHistoryModal(false)}>Close</button>
           </div>
         </div>
       </div>
