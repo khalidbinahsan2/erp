@@ -6,28 +6,44 @@ function formatCurrency(value: number): string {
   return `$${value.toFixed(2)}`;
 }
 
-export default function ReportsPage() {
-  // Show all orders (default view when no date filter selected)
-  const completedOrders = orders.filter(o => o.status === 'completed');
+function getMonthBounds() {
+  const now = new Date();
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  startOfMonth.setHours(0, 0, 0, 0);
+  const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+  endOfMonth.setHours(23, 59, 59, 999);
+  return { start: startOfMonth, end: endOfMonth };
+}
+
+export default function MonthlyReportsPage() {
+  const { start: monthStart, end: monthEnd } = getMonthBounds();
+  
+  const monthOrders = orders.filter(o => {
+    const orderDate = new Date(o.createdAt);
+    return orderDate >= monthStart && orderDate <= monthEnd;
+  });
+
+  const completedOrders = monthOrders.filter(o => o.status === 'completed');
   const totalRevenue = completedOrders.reduce((sum, o) => sum + o.total, 0);
   const avgOrderValue = completedOrders.length > 0 ? totalRevenue / completedOrders.length : 0;
   const totalOrders = completedOrders.length;
 
   const topItems = menuItems
-  .map(item => {
-    const sold = orders.reduce((sum, o) => {
-      return sum + o.items.filter(i => i.menuItemId === item.id).reduce((s, i) => s + i.quantity, 0);
-    }, 0);
-    return { ...item, sold };
-  })
-  .filter(item => item.sold > 0)
-  .sort((a, b) => b.sold - a.sold)
-  .slice(0, 5);
+    .map(item => {
+      const sold = monthOrders.reduce((sum, o) => {
+        return sum + o.items.filter(i => i.menuItemId === item.id).reduce((s, i) => s + i.quantity, 0);
+      }, 0);
+      return { ...item, sold };
+    })
+    .filter(item => item.sold > 0)
+    .sort((a, b) => b.sold - a.sold)
+    .slice(0, 5);
 
+  const categories = ['Appetizers', 'Main Courses', 'Desserts', 'Beverages'];
   const categoryBreakdown = categories.reduce((acc, cat) => {
     const catItems = menuItems.filter(m => m.category === cat);
     const sold = catItems.reduce((sum, item) => {
-      const itemSold = orders.reduce((s, o) => {
+      const itemSold = monthOrders.reduce((s, o) => {
         return s + o.items.filter(i => i.menuItemId === item.id).reduce((sub, i) => sub + i.quantity, 0);
       }, 0);
       return sum + itemSold;
@@ -37,29 +53,27 @@ export default function ReportsPage() {
   }, {} as Record<string, number>);
 
   const ordersByStatus = {
-    completed: orders.filter(o => o.status === 'completed').length,
-    pending: orders.filter(o => o.status === 'pending').length,
-    in_progress: orders.filter(o => o.status === 'in_progress').length,
-    ready: orders.filter(o => o.status === 'ready').length,
-    cancelled: orders.filter(o => o.status === 'cancelled').length,
+    completed: monthOrders.filter(o => o.status === 'completed').length,
+    pending: monthOrders.filter(o => o.status === 'pending').length,
+    in_progress: monthOrders.filter(o => o.status === 'in_progress').length,
+    ready: monthOrders.filter(o => o.status === 'ready').length,
+    cancelled: monthOrders.filter(o => o.status === 'cancelled').length,
   };
+
+  const monthName = monthStart.toLocaleString('default', { month: 'long', year: 'numeric' });
 
   return (
     <>
       <div className="page-header">
-        <h1 className="page-title">Reports & Analytics</h1>
-        <div className="filter-bar" style={{ marginBottom: 0 }}>
-          <a href="/reports/weekly" className="filter-btn">Weekly</a>
-          <a href="/reports/monthly" className="filter-btn">Monthly</a>
-          <a href="/reports/yearly" className="filter-btn">Yearly</a>
-        </div>
+        <h1 className="page-title">Monthly Reports</h1>
+        <p className="page-subtitle">{monthName}</p>
       </div>
 
       <div className="stat-grid">
         <div className="stat-card revenue">
           <div className="stat-icon revenue">💰</div>
           <div className="stat-value">{formatCurrency(totalRevenue)}</div>
-          <div className="stat-label">Total Revenue</div>
+          <div className="stat-label">Monthly Revenue</div>
         </div>
         <div className="stat-card orders">
           <div className="stat-icon orders">📋</div>
@@ -81,7 +95,7 @@ export default function ReportsPage() {
       <div className="grid-2">
         <div className="data-card">
           <div className="data-card-header">
-            <h3 className="data-card-title">Top Selling Items</h3>
+            <h3 className="data-card-title">Top Selling Items This Month</h3>
           </div>
           <div style={{ padding: '24px' }}>
             {topItems.map((item, index) => (
@@ -101,7 +115,7 @@ export default function ReportsPage() {
             ))}
             {topItems.length === 0 && (
               <div className="empty-state">
-                <div className="empty-state-text">No items sold yet</div>
+                <div className="empty-state-text">No items sold this month</div>
               </div>
             )}
           </div>
@@ -109,14 +123,14 @@ export default function ReportsPage() {
 
         <div className="data-card">
           <div className="data-card-header">
-            <h3 className="data-card-title"> Orders by Status</h3>
+            <h3 className="data-card-title">Orders by Status</h3>
           </div>
           <div style={{ padding: '24px' }}>
             {Object.entries(ordersByStatus).map(([status, count]) => (
               <div key={status} style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
                 <span className={`badge badge-${status}`}>{status.replace('_', ' ')}</span>
                 <div style={{ flex: 1, height: '8px', background: 'var(--bg-elevated)', borderRadius: '4px', overflow: 'hidden' }}>
-                  <div style={{ width: `${(count / orders.length) * 100}%`, height: '100%', background: 'var(--primary)', borderRadius: '4px' }} />
+                  <div style={{ width: `${(count / monthOrders.length) * 100}%`, height: '100%', background: 'var(--primary)', borderRadius: '4px' }} />
                 </div>
                 <span className="mono" style={{ fontSize: '14px' }}>{count}</span>
               </div>
@@ -159,7 +173,7 @@ export default function ReportsPage() {
                 </div>
                 <div style={{ textAlign: 'right' }}>
                   <div className="mono" style={{ fontWeight: '600' }}>
-                    {15}
+                    85
                   </div>
                   <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>orders handled</div>
                 </div>
@@ -171,5 +185,3 @@ export default function ReportsPage() {
     </>
   );
 }
-
-const categories = ['Appetizers', 'Main Courses', 'Desserts', 'Beverages'];
