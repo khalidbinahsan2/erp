@@ -1,11 +1,21 @@
 'use client';
 
 import { useState } from 'react';
-import { menuItems as initialMenuItems, categories } from '@/lib/mockData';
+import { menuItems as initialMenuItems, categories, inventoryItems, menuItemRecipes } from '@/lib/mockData';
 import { MenuItem } from '@/types';
 
 function formatCurrency(value: number): string {
   return `$${value.toFixed(2)}`;
+}
+
+function calculateItemCost(menuItemId: string): number {
+  const recipe = menuItemRecipes.find(r => r.menuItemId === menuItemId);
+  if (!recipe) return 0;
+
+  return recipe.ingredients.reduce((cost, ing) => {
+    const invItem = inventoryItems.find(i => i.id === ing.inventoryItemId);
+    return cost + (invItem ? invItem.costPerUnit * ing.quantity : 0);
+  }, 0);
 }
 
 export default function MenuPage() {
@@ -22,18 +32,21 @@ export default function MenuPage() {
     price: '',
     prepTime: '',
     image: '',
-    dietary: [] as string[]
+    dietary: [] as string[],
+    costPerUnit: '',
+    profitPerUnit: ''
   });
 
   const filteredItems = filter === 'All' ? menuItems : menuItems.filter(m => m.category === filter);
 
   const openAddModal = () => {
     setEditingItem(null);
-    setFormData({ name: '', description: '', category: 'Main Courses', price: '', prepTime: '', image: '', dietary: [] });
+    setFormData({ name: '', description: '', category: 'Main Courses', price: '', prepTime: '', image: '', dietary: [], costPerUnit: '', profitPerUnit: '' });
     setShowModal(true);
   };
 
   const openEditModal = (item: MenuItem) => {
+    const itemCost = calculateItemCost(item.id);
     setEditingItem(item);
     setFormData({
       name: item.name,
@@ -42,13 +55,17 @@ export default function MenuPage() {
       price: item.price.toString(),
       prepTime: item.prepTime.toString(),
       image: item.image,
-      dietary: item.dietary
+      dietary: item.dietary,
+      costPerUnit: item.costPerUnit?.toString() || itemCost.toString(),
+      profitPerUnit: item.profitPerUnit?.toString() || (item.price - itemCost).toString()
     });
     setShowModal(true);
   };
 
   const saveItem = () => {
     if (!formData.name || !formData.price) return;
+    const costPerUnit = formData.costPerUnit ? parseFloat(formData.costPerUnit) : calculateItemCost('1');
+    const profitPerUnit = formData.profitPerUnit ? parseFloat(formData.profitPerUnit) : (parseFloat(formData.price) - costPerUnit);
     
     if (editingItem) {
       setMenuItems(menuItems.map(m => m.id === editingItem.id ? {
@@ -58,7 +75,9 @@ export default function MenuPage() {
         category: formData.category,
         price: parseFloat(formData.price),
         prepTime: parseInt(formData.prepTime) || 15,
-        image: formData.image
+        image: formData.image,
+        costPerUnit: formData.costPerUnit ? parseFloat(formData.costPerUnit) : calculateItemCost(m.id),
+        profitPerUnit: formData.profitPerUnit ? parseFloat(formData.profitPerUnit) : (parseFloat(formData.price) - (formData.costPerUnit ? parseFloat(formData.costPerUnit) : calculateItemCost(m.id)))
       } : m));
     } else {
       const newItem: MenuItem = {
@@ -70,7 +89,9 @@ export default function MenuPage() {
         prepTime: parseInt(formData.prepTime) || 15,
         available: true,
         image: formData.image || 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=300&h=200&fit=crop',
-        dietary: formData.dietary
+        dietary: formData.dietary,
+        costPerUnit: formData.costPerUnit ? parseFloat(formData.costPerUnit) : 0,
+        profitPerUnit: formData.profitPerUnit ? parseFloat(formData.profitPerUnit) : 0
       };
       setMenuItems([...menuItems, newItem]);
     }
@@ -102,27 +123,41 @@ export default function MenuPage() {
 
       {viewMode === 'grid' ? (
         <div className="grid-3">
-          {filteredItems.map(item => (
-            <div key={item.id} className="menu-card">
-              <div className="menu-card-image" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '32px' }}>🍽️</div>
-              <div className="menu-card-content">
-                <div className="menu-card-name">{item.name}</div>
-                <div className="menu-card-category">{item.category}</div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div className="menu-card-price">{formatCurrency(item.price)}</div>
-                  <span className={`badge badge-${item.available ? 'available' : 'cancelled'}`}>
-                    {item.available ? 'Available' : 'Unavailable'}
-                  </span>
-                </div>
-                <div className="menu-card-actions">
-                  <button className="action-btn edit" onClick={() => openEditModal(item)}>Edit</button>
-                  <button className="action-btn" onClick={() => toggleAvailability(item.id)}>
-                    {item.available ? 'Mark Unavailable' : 'Mark Available'}
-                  </button>
+          {filteredItems.map(item => {
+            const cost = item.costPerUnit || calculateItemCost(item.id);
+            const profit = item.profitPerUnit || (item.price - cost);
+            const margin = item.price > 0 ? (profit / item.price) * 100 : 0;
+            return (
+              <div key={item.id} className="menu-card">
+                <div className="menu-card-image" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '32px' }}>🍽️</div>
+                <div className="menu-card-content">
+                  <div className="menu-card-name">{item.name}</div>
+                  <div className="menu-card-category">{item.category}</div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div className="menu-card-price">{formatCurrency(item.price)}</div>
+                    <span className={`badge ${margin >= 30 ? 'badge-available' : margin >= 15 ? 'badge-pending' : 'badge-cancelled'}`}>
+                      {margin.toFixed(0)}% margin
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--text-muted)', marginBottom: '8px' }}>
+                    <span>Cost: {formatCurrency(cost)}</span>
+                    <span style={{ color: 'var(--success)' }}>Profit: {formatCurrency(profit)}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span className={`badge badge-${item.available ? 'available' : 'cancelled'}`}>
+                      {item.available ? 'Available' : 'Unavailable'}
+                    </span>
+                  </div>
+                  <div className="menu-card-actions">
+                    <button className="action-btn edit" onClick={() => openEditModal(item)}>Edit</button>
+                    <button className="action-btn" onClick={() => toggleAvailability(item.id)}>
+                      {item.available ? 'Mark Unavailable' : 'Mark Available'}
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       ) : (
         <div className="data-card">
@@ -132,31 +167,46 @@ export default function MenuPage() {
                 <th>Name</th>
                 <th>Category</th>
                 <th>Price</th>
+                <th>Cost</th>
+                <th>Profit</th>
+                <th>Margin</th>
                 <th>Prep Time</th>
                 <th>Status</th>
                 <th>Actions</th>
               </tr>
             </thead>
             <tbody>
-              {filteredItems.map(item => (
-                <tr key={item.id}>
-                  <td>{item.name}</td>
-                  <td>{item.category}</td>
-                  <td className="mono">{formatCurrency(item.price)}</td>
-                  <td>{item.prepTime} min</td>
-                  <td>
-                    <span className={`badge badge-${item.available ? 'available' : 'cancelled'}`}>
-                      {item.available ? 'Available' : 'Unavailable'}
-                    </span>
-                  </td>
-                  <td>
-                    <button className="action-btn edit" onClick={() => openEditModal(item)}>Edit</button>
-                    <button className="action-btn" style={{ marginLeft: '8px' }} onClick={() => toggleAvailability(item.id)}>
-                      {item.available ? 'Unavailable' : 'Available'}
-                    </button>
-                  </td>
-                </tr>
-              ))}
+              {filteredItems.map(item => {
+                const cost = item.costPerUnit || calculateItemCost(item.id);
+                const profit = item.profitPerUnit || (item.price - cost);
+                const margin = item.price > 0 ? (profit / item.price) * 100 : 0;
+                return (
+                  <tr key={item.id}>
+                    <td>{item.name}</td>
+                    <td>{item.category}</td>
+                    <td className="mono">{formatCurrency(item.price)}</td>
+                    <td className="mono" style={{ color: 'var(--danger)' }}>{formatCurrency(cost)}</td>
+                    <td className="mono" style={{ color: 'var(--success)', fontWeight: '600' }}>{formatCurrency(profit)}</td>
+                    <td>
+                      <span className={`badge ${margin >= 30 ? 'badge-available' : margin >= 15 ? 'badge-pending' : 'badge-cancelled'}`}>
+                        {margin.toFixed(1)}%
+                      </span>
+                    </td>
+                    <td>{item.prepTime} min</td>
+                    <td>
+                      <span className={`badge badge-${item.available ? 'available' : 'cancelled'}`}>
+                        {item.available ? 'Available' : 'Unavailable'}
+                      </span>
+                    </td>
+                    <td>
+                      <button className="action-btn edit" onClick={() => openEditModal(item)}>Edit</button>
+                      <button className="action-btn" style={{ marginLeft: '8px' }} onClick={() => toggleAvailability(item.id)}>
+                        {item.available ? 'Unavailable' : 'Available'}
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -187,8 +237,18 @@ export default function MenuPage() {
                 </select>
               </div>
               <div className="form-group">
-                <label className="form-label">Price</label>
+                <label className="form-label">Sale Price</label>
                 <input className="form-input" type="number" step="0.01" value={formData.price} onChange={e => setFormData({ ...formData, price: e.target.value })} placeholder="0.00" />
+              </div>
+            </div>
+            <div className="grid-2">
+              <div className="form-group">
+                <label className="form-label">Cost per Unit</label>
+                <input className="form-input" type="number" step="0.01" value={formData.costPerUnit} onChange={e => setFormData({ ...formData, costPerUnit: e.target.value })} placeholder="0.00" />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Profit per Unit</label>
+                <input className="form-input" type="number" step="0.01" value={formData.profitPerUnit} onChange={e => setFormData({ ...formData, profitPerUnit: e.target.value })} placeholder="0.00" />
               </div>
             </div>
             <div className="grid-2">

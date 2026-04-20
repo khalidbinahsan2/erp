@@ -8,6 +8,8 @@ export interface MenuItem {
   available: boolean;
   image: string;
   dietary: string[];
+  costPerUnit?: number;
+  profitPerUnit?: number;
 }
 
 export interface OrderItem {
