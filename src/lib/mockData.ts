@@ -125,7 +125,9 @@ export const orders: Order[] = [
     total: 68.00,
     status: 'in_progress',
     createdAt: new Date(Date.now() - 30 * 60000),
-    specialInstructions: 'Extra cheese on risotto'
+    specialInstructions: 'Extra cheese on risotto',
+    customerId: '1',
+    customerName: 'John Smith'
   },
   {
     id: 'ORD-002',
@@ -137,7 +139,9 @@ export const orders: Order[] = [
     ],
     total: 40.00,
     status: 'pending',
-    createdAt: new Date(Date.now() - 5 * 60000)
+    createdAt: new Date(Date.now() - 5 * 60000),
+    customerId: '2',
+    customerName: 'Sarah Johnson'
   },
   {
     id: 'ORD-003',
@@ -149,7 +153,9 @@ export const orders: Order[] = [
     ],
     total: 44.00,
     status: 'completed',
-    createdAt: new Date(Date.now() - 90 * 60000)
+    createdAt: new Date(Date.now() - 90 * 60000),
+    customerId: '4',
+    customerName: 'Emily Davis'
   },
   {
     id: 'ORD-004',
@@ -160,7 +166,9 @@ export const orders: Order[] = [
     ],
     total: 66.00,
     status: 'ready',
-    createdAt: new Date(Date.now() - 20 * 60000)
+    createdAt: new Date(Date.now() - 20 * 60000),
+    customerId: '6',
+    customerName: 'Jennifer Lee'
   },
   {
     id: 'ORD-005',

@@ -4,6 +4,22 @@ import { useState } from 'react';
 import { orders as initialOrders, tables, menuItems } from '@/lib/mockData';
 import { Order, OrderItem } from '@/types';
 
+interface Customer {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+}
+
+const mockCustomers: Customer[] = [
+  { id: '1', name: 'John Smith', email: 'john.smith@email.com', phone: '(555) 123-4567' },
+  { id: '2', name: 'Sarah Johnson', email: 'sarah.j@email.com', phone: '(555) 234-5678' },
+  { id: '3', name: 'Michael Brown', email: 'mbrown@email.com', phone: '(555) 345-6789' },
+  { id: '4', name: 'Emily Davis', email: 'emily.davis@email.com', phone: '(555) 456-7890' },
+  { id: '5', name: 'Robert Wilson', email: 'rwilson@email.com', phone: '(555) 567-8901' },
+  { id: '6', name: 'Jennifer Lee', email: 'jlee@email.com', phone: '(555) 678-9012' },
+];
+
 function formatCurrency(value: number): string {
   return `$${value.toFixed(2)}`;
 }
@@ -17,6 +33,7 @@ export default function OrdersPage() {
   const [filter, setFilter] = useState<string>('all');
   const [showModal, setShowModal] = useState(false);
   const [selectedTable, setSelectedTable] = useState('');
+  const [selectedCustomer, setSelectedCustomer] = useState('');
   const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
   const [instructions, setInstructions] = useState('');
 
@@ -60,6 +77,7 @@ export default function OrdersPage() {
   const createOrder = () => {
     if (!selectedTable || orderItems.length === 0) return;
     const table = tables.find(t => t.id === selectedTable);
+    const customer = selectedCustomer ? mockCustomers.find(c => c.id === selectedCustomer) : null;
     const newOrder: Order = {
       id: `ORD-${String(orders.length + 1).padStart(3, '0')}`,
       tableId: selectedTable,
@@ -68,11 +86,14 @@ export default function OrdersPage() {
       total: orderTotal,
       status: 'pending',
       createdAt: new Date(),
-      specialInstructions: instructions
+      specialInstructions: instructions,
+      customerId: customer?.id,
+      customerName: customer?.name
     };
     setOrders([newOrder, ...orders]);
     setShowModal(false);
     setSelectedTable('');
+    setSelectedCustomer('');
     setOrderItems([]);
     setInstructions('');
   };
@@ -105,6 +126,7 @@ export default function OrdersPage() {
             <tr>
               <th>Order ID</th>
               <th>Table</th>
+              <th>Customer</th>
               <th>Items</th>
               <th>Total</th>
               <th>Status</th>
@@ -117,6 +139,13 @@ export default function OrdersPage() {
               <tr key={order.id}>
                 <td className="mono">{order.id}</td>
                 <td>Table {order.tableNumber}</td>
+                <td>
+                  {order.customerName ? (
+                    <span className="badge badge-in_progress">{order.customerName}</span>
+                  ) : (
+                    <span style={{ color: 'var(--text-muted)' }}>-</span>
+                  )}
+                </td>
                 <td>
                   {order.items.map((item, idx) => (
                     <span key={idx}>{item.quantity}x {item.name}{idx < order.items.length - 1 ? ', ' : ''}</span>
@@ -162,6 +191,15 @@ export default function OrdersPage() {
                 <option value="">Choose a table...</option>
                 {tables.filter(t => t.status === 'available').map(table => (
                   <option key={table.id} value={table.id}>Table {table.number} (Capacity: {table.capacity})</option>
+                ))}
+              </select>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Customer (Optional)</label>
+              <select className="form-select" value={selectedCustomer} onChange={e => setSelectedCustomer(e.target.value)}>
+                <option value="">Walk-in Customer</option>
+                {mockCustomers.map(customer => (
+                  <option key={customer.id} value={customer.id}>{customer.name} - {customer.phone}</option>
                 ))}
               </select>
             </div>

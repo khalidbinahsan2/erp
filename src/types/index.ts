@@ -28,6 +28,24 @@ export interface Order {
   status: 'pending' | 'in_progress' | 'ready' | 'completed' | 'cancelled';
   createdAt: Date;
   specialInstructions?: string;
+  customerId?: string;
+  customerName?: string;
+}
+
+export interface Customer {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  totalVisits: number;
+  totalSpent: number;
+  lastVisit: string;
+  birthday?: string;
+  notes: string;
+  tags: string[];
+  loyaltyPoints: number;
+  address?: string;
+  preferences?: string;
 }
 
 export interface Table {
