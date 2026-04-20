@@ -61,6 +61,12 @@ export interface Staff {
   status: 'active' | 'inactive';
   schedule: Shift[];
   pin?: string;
+  salary?: {
+    hourlyRate: number;
+    hoursWorked: number;
+    overtimeHours: number;
+    monthlySalary: number;
+  };
 }
 
 export interface Reservation {

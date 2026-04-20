@@ -13,20 +13,23 @@ export default function StaffPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [roleFilter, setRoleFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [showSalaryData, setShowSalaryData] = useState(false);
 
   const [formData, setFormData] = useState({
     name: '',
     role: 'Server',
     phone: '',
     email: '',
-    status: 'active' as 'active' | 'inactive'
+    status: 'active' as 'active' | 'inactive',
+    hourlyRate: '',
+    overtimeHours: ''
   });
 
   const [scheduleForm, setScheduleForm] = useState<{ day: string; startTime: string; endTime: string }[]>([]);
 
   const openAddModal = () => {
     setEditingStaff(null);
-    setFormData({ name: '', role: 'Server', phone: '', email: '', status: 'active' });
+    setFormData({ name: '', role: 'Server', phone: '', email: '', status: 'active', hourlyRate: '', overtimeHours: '' });
     setShowModal(true);
   };
 
@@ -37,7 +40,9 @@ export default function StaffPage() {
       role: member.role,
       phone: member.phone,
       email: member.email,
-      status: member.status
+      status: member.status,
+      hourlyRate: member.salary?.hourlyRate.toString() || '',
+      overtimeHours: member.salary?.overtimeHours.toString() || ''
     });
     setShowModal(true);
   };
@@ -53,6 +58,11 @@ export default function StaffPage() {
   const saveStaff = () => {
     if (!formData.name) return;
     
+    const hourlyRate = parseFloat(formData.hourlyRate) || 0;
+    const overtimeHours = parseFloat(formData.overtimeHours) || 0;
+    const hoursWorked = 160 + overtimeHours;
+    const monthlySalary = Math.round(hourlyRate * hoursWorked + (overtimeHours * hourlyRate * 1.5));
+    
     if (editingStaff) {
       setStaff(staff.map(s => s.id === editingStaff.id ? {
         ...s,
@@ -60,7 +70,8 @@ export default function StaffPage() {
         role: formData.role,
         phone: formData.phone,
         email: formData.email,
-        status: formData.status
+        status: formData.status,
+        salary: hourlyRate > 0 ? { hourlyRate, hoursWorked, overtimeHours, monthlySalary } : undefined
       } : s));
     } else {
       const newStaff: Staff = {
@@ -70,7 +81,8 @@ export default function StaffPage() {
         phone: formData.phone,
         email: formData.email,
         status: formData.status,
-        schedule: []
+        schedule: [],
+        salary: hourlyRate > 0 ? { hourlyRate, hoursWorked, overtimeHours, monthlySalary } : undefined
       };
       setStaff([...staff, newStaff]);
     }
@@ -129,7 +141,6 @@ export default function StaffPage() {
   });
 
   const getStaffPerformance = (memberId: string) => {
-    const staffOrders = orders.filter(o => o.status === 'completed');
     const orderCount = 32;
     const revenue = 1245;
     const rating = 4.7;
@@ -137,12 +148,18 @@ export default function StaffPage() {
   };
 
   const activeStaff = staff.filter(s => s.status === 'active');
+  const totalSalaries = staff.reduce((sum, s) => sum + (s.salary?.monthlySalary || 0), 0);
+  const totalOvertime = staff.reduce((sum, s) => sum + (s.salary?.overtimeHours || 0), 0);
 
   return (
     <>
       <div className="page-header">
         <h1 className="page-title">Staff</h1>
         <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+            <input type="checkbox" checked={showSalaryData} onChange={e => setShowSalaryData(e.target.checked)} />
+            <span style={{ fontSize: '14px' }}>Show Salaries</span>
+          </label>
           <span className="badge badge-available">{activeStaff.length} Active</span>
           <button className="btn btn-secondary" onClick={exportStaffData}>Export CSV</button>
           <button className="btn btn-primary" onClick={openAddModal}>
@@ -150,6 +167,23 @@ export default function StaffPage() {
           </button>
         </div>
       </div>
+
+      {showSalaryData && (
+        <div className="stat-grid" style={{ marginBottom: '24px' }}>
+          <div className="stat-card">
+            <div className="stat-value" style={{ fontSize: '28px' }}>${totalSalaries.toLocaleString()}</div>
+            <div className="stat-label">Total Monthly Payroll</div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-value" style={{ fontSize: '28px', color: 'var(--warning)' }}>{totalOvertime}h</div>
+            <div className="stat-label">Total Overtime Hours</div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-value" style={{ fontSize: '28px' }}>{staff.filter(s => (s.salary?.overtimeHours || 0) > 0).length}</div>
+            <div className="stat-label">Staff with Overtime</div>
+          </div>
+        </div>
+      )}
 
       <div className="tabs">
         <button className={`tab ${view === 'list' ? 'active' : ''}`} onClick={() => setView('list')}>Staff List</button>
@@ -191,31 +225,43 @@ export default function StaffPage() {
                   <th>Role</th>
                   <th>Phone</th>
                   <th>Email</th>
+                  {showSalaryData && <th>Hourly Rate</th>}
+                  {showSalaryData && <th>Hours</th>}
+                  {showSalaryData && <th>OT Hours</th>}
+                  {showSalaryData && <th>Monthly</th>}
                   <th>Status</th>
                   <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {filteredStaff.map(member => (
-                  <tr key={member.id}>
-                    <td>{member.name}</td>
-                    <td>
-                      <span className="badge badge-in_progress">{member.role}</span>
-                    </td>
-                    <td>{member.phone}</td>
-                    <td>{member.email}</td>
-                    <td>
-                      <span className={`badge badge-${member.status}`}>
-                        {member.status}
-                      </span>
-                    </td>
-                    <td>
-                      <button className="action-btn edit" onClick={() => openEditModal(member)}>Edit</button>
-                      <button className="action-btn" style={{ marginLeft: '8px' }} onClick={() => openScheduleModal(member)}>Schedule</button>
-                      <button className="action-btn" style={{ marginLeft: '8px', color: 'var(--error)' }} onClick={() => deleteStaff(member.id)}>Delete</button>
-                    </td>
-                  </tr>
-                ))}
+                {filteredStaff.map(member => {
+                  const salary = member.salary;
+                  const hasOvertime = (salary?.overtimeHours || 0) > 0;
+                  return (
+                    <tr key={member.id}>
+                      <td>{member.name}</td>
+                      <td>
+                        <span className="badge badge-in_progress">{member.role}</span>
+                      </td>
+                      <td>{member.phone}</td>
+                      <td>{member.email}</td>
+                      {showSalaryData && <td className="mono">{salary ? `$${salary.hourlyRate}/hr` : '-'}</td>}
+                      {showSalaryData && <td className="mono">{salary?.hoursWorked || '-'}</td>}
+                      {showSalaryData && <td className="mono" style={{ color: hasOvertime ? 'var(--warning)' : 'inherit' }}>{salary?.overtimeHours || 0}h</td>}
+                      {showSalaryData && <td className="mono" style={{ fontWeight: '600' }}>{salary ? `$${salary.monthlySalary}` : '-'}</td>}
+                      <td>
+                        <span className={`badge badge-${member.status}`}>
+                          {member.status}
+                        </span>
+                      </td>
+                      <td>
+                        <button className="action-btn edit" onClick={() => openEditModal(member)}>Edit</button>
+                        <button className="action-btn" style={{ marginLeft: '8px' }} onClick={() => openScheduleModal(member)}>Schedule</button>
+                        <button className="action-btn" style={{ marginLeft: '8px', color: 'var(--error)' }} onClick={() => deleteStaff(member.id)}>Delete</button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
             {filteredStaff.length === 0 && (
@@ -278,6 +324,7 @@ export default function StaffPage() {
         <div className="grid-2">
           {staff.filter(s => s.status === 'active').map(member => {
             const perf = getStaffPerformance(member.id);
+            const salary = member.salary;
             return (
               <div key={member.id} className="data-card">
                 <div className="data-card-header">
@@ -299,7 +346,17 @@ export default function StaffPage() {
                       <div className="stat-label">Rating</div>
                     </div>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  {showSalaryData && salary && (
+                    <div style={{ marginTop: '16px', padding: '12px', background: 'var(--bg-elevated)', borderRadius: '8px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                        <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Overtime Status</span>
+                        <span style={{ fontSize: '14px', fontWeight: '600', color: salary.overtimeHours > 0 ? 'var(--warning)' : 'var(--success)' }}>
+                          {salary.overtimeHours > 0 ? `${salary.overtimeHours}h overtime` : 'No overtime'}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '16px' }}>
                     <div style={{ width: '40px', height: '40px', background: 'var(--primary)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: '600' }}>
                       {member.name.split(' ').map(n => n[0]).join('')}
                     </div>
@@ -351,6 +408,16 @@ export default function StaffPage() {
             <div className="form-group">
               <label className="form-label">Email</label>
               <input className="form-input" type="email" value={formData.email} onChange={e => setFormData({ ...formData, email: e.target.value })} placeholder="email@restaurant.com" />
+            </div>
+            <div className="grid-2">
+              <div className="form-group">
+                <label className="form-label">Hourly Rate ($)</label>
+                <input className="form-input" type="number" step="0.01" value={formData.hourlyRate} onChange={e => setFormData({ ...formData, hourlyRate: e.target.value })} placeholder="0.00" />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Overtime Hours</label>
+                <input className="form-input" type="number" value={formData.overtimeHours} onChange={e => setFormData({ ...formData, overtimeHours: e.target.value })} placeholder="0" />
+              </div>
             </div>
           </div>
           <div className="modal-footer">
