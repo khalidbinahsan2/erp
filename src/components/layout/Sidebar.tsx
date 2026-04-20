@@ -11,6 +11,7 @@ const navItems = [
   { href: '/tables', icon: '🪑', label: 'Tables' },
   { href: '/inventory', icon: '📦', label: 'Inventory' },
   { href: '/inventory/purchase-orders', icon: '🛒', label: 'Purchase Orders', sub: true },
+  { href: '/customers', icon: '👤', label: 'Customers' },
   { href: '/staff', icon: '👥', label: 'Staff' },
   { href: '/reports', icon: '📈', label: 'Reports' },
   { href: '/reports/profits', icon: '💵', label: 'Profits', sub: true },
