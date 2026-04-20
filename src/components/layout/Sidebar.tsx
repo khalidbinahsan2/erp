@@ -7,6 +7,7 @@ const navItems = [
   { href: '/', icon: '📊', label: 'Dashboard' },
   { href: '/orders', icon: '📋', label: 'Orders' },
   { href: '/menu', icon: '🍽️', label: 'Menu' },
+  { href: '/categories', icon: '🏷️', label: 'Categories' },
   { href: '/tables', icon: '🪑', label: 'Tables' },
   { href: '/inventory', icon: '📦', label: 'Inventory' },
   { href: '/staff', icon: '👥', label: 'Staff' },
