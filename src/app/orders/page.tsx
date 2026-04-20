@@ -32,10 +32,17 @@ export default function OrdersPage() {
   const [orders, setOrders] = useState<Order[]>(initialOrders);
   const [filter, setFilter] = useState<string>('all');
   const [showModal, setShowModal] = useState(false);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [selectedTable, setSelectedTable] = useState('');
   const [selectedCustomer, setSelectedCustomer] = useState('');
   const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
   const [instructions, setInstructions] = useState('');
+
+  // Payment state
+  const [paymentAmount, setPaymentAmount] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card' | 'online'>('cash');
+  const [tipAmount, setTipAmount] = useState('');
 
   const filteredOrders = filter === 'all' 
     ? orders 
@@ -88,7 +95,8 @@ export default function OrdersPage() {
       createdAt: new Date(),
       specialInstructions: instructions,
       customerId: customer?.id,
-      customerName: customer?.name
+      customerName: customer?.name,
+      paymentStatus: 'unpaid'
     };
     setOrders([newOrder, ...orders]);
     setShowModal(false);
@@ -100,6 +108,43 @@ export default function OrdersPage() {
 
   const updateStatus = (orderId: string, newStatus: Order['status']) => {
     setOrders(orders.map(o => o.id === orderId ? { ...o, status: newStatus } : o));
+  };
+
+  const openPaymentModal = (order: Order) => {
+    setSelectedOrder(order);
+    setPaymentAmount(order.total.toString());
+    setTipAmount('');
+    setPaymentMethod('cash');
+    setShowPaymentModal(true);
+  };
+
+  const processPayment = () => {
+    if (!selectedOrder || !paymentAmount) return;
+    
+    const amount = parseFloat(paymentAmount);
+    const tip = tipAmount ? parseFloat(tipAmount) : 0;
+    const change = paymentMethod === 'cash' ? Math.max(0, amount - selectedOrder.total - tip) : 0;
+    
+    setOrders(orders.map(o => o.id === selectedOrder.id ? {
+      ...o,
+      status: 'completed',
+      paymentStatus: 'paid' as const,
+      paymentMethod,
+      paidAmount: amount,
+      changeGiven: change,
+      tip: tip > 0 ? tip : undefined,
+      paymentDate: new Date().toISOString()
+    } : o));
+    
+    setShowPaymentModal(false);
+  };
+
+  const getPaymentStatusBadge = (status?: string) => {
+    switch (status) {
+      case 'paid': return 'badge-available';
+      case 'partial': return 'badge-pending';
+      default: return 'badge-cancelled';
+    }
   };
 
   return (
@@ -129,6 +174,7 @@ export default function OrdersPage() {
               <th>Customer</th>
               <th>Items</th>
               <th>Total</th>
+              <th>Payment</th>
               <th>Status</th>
               <th>Time</th>
               <th>Actions</th>
@@ -151,7 +197,18 @@ export default function OrdersPage() {
                     <span key={idx}>{item.quantity}x {item.name}{idx < order.items.length - 1 ? ', ' : ''}</span>
                   ))}
                 </td>
-                <td className="mono">{formatCurrency(order.total)}</td>
+                <td className="mono" style={{ fontWeight: '600' }}>{formatCurrency(order.total)}</td>
+                <td>
+                  {order.status === 'completed' ? (
+                    <span className={`badge ${getPaymentStatusBadge(order.paymentStatus)}`}>
+                      {order.paymentStatus === 'paid' ? 'Paid' : 'Unpaid'}
+                    </span>
+                  ) : order.paymentStatus === 'paid' ? (
+                    <span className="badge badge-available">Paid</span>
+                  ) : (
+                    <span className="badge badge-cancelled">Unpaid</span>
+                  )}
+                </td>
                 <td>
                   <span className={`badge badge-${order.status}`}>
                     {order.status.replace('_', ' ')}
@@ -159,17 +216,25 @@ export default function OrdersPage() {
                 </td>
                 <td>{formatTime(order.createdAt)}</td>
                 <td>
+                  {order.status === 'ready' && order.paymentStatus !== 'paid' && (
+                    <button className="btn btn-primary" style={{ padding: '4px 12px', fontSize: '12px' }} onClick={() => openPaymentModal(order)}>
+                      Pay
+                    </button>
+                  )}
                   {order.status === 'pending' && (
                     <button className="action-btn" onClick={() => updateStatus(order.id, 'in_progress')}>Start</button>
                   )}
                   {order.status === 'in_progress' && (
                     <button className="action-btn" onClick={() => updateStatus(order.id, 'ready')}>Ready</button>
                   )}
-                  {order.status === 'ready' && (
+                  {order.status === 'ready' && order.paymentStatus === 'paid' && (
                     <button className="action-btn" onClick={() => updateStatus(order.id, 'completed')}>Complete</button>
                   )}
                   {order.status !== 'completed' && order.status !== 'cancelled' && (
                     <button className="action-btn delete" style={{ marginLeft: '8px' }} onClick={() => updateStatus(order.id, 'cancelled')}>Cancel</button>
+                  )}
+                  {order.status === 'completed' && (
+                    <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Done</span>
                   )}
                 </td>
               </tr>
@@ -178,6 +243,7 @@ export default function OrdersPage() {
         </table>
       </div>
 
+      {/* New Order Modal */}
       <div className={`modal-overlay ${showModal ? 'active' : ''}`} onClick={() => setShowModal(false)}>
         <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '800px' }}>
           <div className="modal-header">
@@ -240,6 +306,113 @@ export default function OrdersPage() {
           <div className="modal-footer">
             <button className="btn btn-secondary" onClick={() => setShowModal(false)}>Cancel</button>
             <button className="btn btn-primary" onClick={createOrder} disabled={!selectedTable || orderItems.length === 0}>Create Order</button>
+          </div>
+        </div>
+      </div>
+
+      {/* Payment Modal */}
+      <div className={`modal-overlay ${showPaymentModal ? 'active' : ''}`} onClick={() => setShowPaymentModal(false)}>
+        <div className="modal" onClick={e => e.stopPropagation()}>
+          <div className="modal-header">
+            <h2 className="modal-title">Process Payment - {selectedOrder?.id}</h2>
+            <button className="modal-close" onClick={() => setShowPaymentModal(false)}>×</button>
+          </div>
+          <div className="modal-body">
+            {selectedOrder && (
+              <>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '24px' }}>
+                  <div style={{ padding: '16px', background: 'var(--bg-elevated)', borderRadius: '8px', textAlign: 'center' }}>
+                    <div style={{ fontSize: '14px', color: 'var(--text-muted)', marginBottom: '8px' }}>Order Total</div>
+                    <div style={{ fontSize: '28px', fontWeight: '700', color: 'var(--primary)' }}>{formatCurrency(selectedOrder.total)}</div>
+                  </div>
+                  <div style={{ padding: '16px', background: 'var(--bg-elevated)', borderRadius: '8px', textAlign: 'center' }}>
+                    <div style={{ fontSize: '14px', color: 'var(--text-muted)', marginBottom: '8px' }}>Customer</div>
+                    <div style={{ fontSize: '20px', fontWeight: '600' }}>{selectedOrder.customerName || 'Walk-in'}</div>
+                  </div>
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Payment Method</label>
+                  <div style={{ display: 'flex', gap: '12px' }}>
+                    {(['cash', 'card', 'online'] as const).map(method => (
+                      <button
+                        key={method}
+                        className={`btn ${paymentMethod === method ? 'btn-primary' : 'btn-secondary'}`}
+                        style={{ flex: 1, textTransform: 'capitalize' }}
+                        onClick={() => setPaymentMethod(method)}
+                      >
+                        {method === 'cash' ? '💵 Cash' : method === 'card' ? '💳 Card' : '📱 Online'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="grid-2">
+                  <div className="form-group">
+                    <label className="form-label">Amount Tendered</label>
+                    <input 
+                      className="form-input" 
+                      type="number" 
+                      step="0.01"
+                      value={paymentAmount}
+                      onChange={e => setPaymentAmount(e.target.value)}
+                      placeholder="0.00"
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Tip (Optional)</label>
+                    <input 
+                      className="form-input" 
+                      type="number" 
+                      step="0.01"
+                      value={tipAmount}
+                      onChange={e => setTipAmount(e.target.value)}
+                      placeholder="0.00"
+                    />
+                  </div>
+                </div>
+
+                {paymentMethod === 'cash' && paymentAmount && (
+                  <div style={{ padding: '16px', background: 'var(--bg-elevated)', borderRadius: '8px', marginTop: '16px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                      <span>Order Total:</span>
+                      <span className="mono">{formatCurrency(selectedOrder.total)}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                      <span>Tip:</span>
+                      <span className="mono">{formatCurrency(tipAmount ? parseFloat(tipAmount) : 0)}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontWeight: '600' }}>
+                      <span>Total Due:</span>
+                      <span className="mono">{formatCurrency(selectedOrder.total + (tipAmount ? parseFloat(tipAmount) : 0))}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '8px', borderTop: '1px solid var(--border)', fontWeight: '600', color: 'var(--success)' }}>
+                      <span>Change:</span>
+                      <span className="mono">{formatCurrency(Math.max(0, parseFloat(paymentAmount || '0') - selectedOrder.total - (tipAmount ? parseFloat(tipAmount) : 0)))}</span>
+                    </div>
+                  </div>
+                )}
+
+                {paymentMethod !== 'cash' && paymentAmount && (
+                  <div style={{ padding: '16px', background: 'var(--bg-elevated)', borderRadius: '8px', marginTop: '16px', textAlign: 'center' }}>
+                    <div style={{ fontWeight: '600', marginBottom: '8px' }}>Total to Charge</div>
+                    <div style={{ fontSize: '24px', fontWeight: '700', color: 'var(--primary)' }}>
+                      {formatCurrency(selectedOrder.total + (tipAmount ? parseFloat(tipAmount) : 0))}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+          <div className="modal-footer">
+            <button className="btn btn-secondary" onClick={() => setShowPaymentModal(false)}>Cancel</button>
+            <button 
+              className="btn btn-primary" 
+              onClick={processPayment}
+              disabled={!paymentAmount || parseFloat(paymentAmount) < (selectedOrder?.total || 0)}
+            >
+              Process Payment
+            </button>
           </div>
         </div>
       </div>

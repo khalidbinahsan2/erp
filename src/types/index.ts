@@ -30,6 +30,23 @@ export interface Order {
   specialInstructions?: string;
   customerId?: string;
   customerName?: string;
+  paymentStatus?: 'unpaid' | 'paid' | 'partial';
+  paymentMethod?: 'cash' | 'card' | 'online';
+  paidAmount?: number;
+  paymentDate?: string;
+  changeGiven?: number;
+  tip?: number;
+}
+
+export interface Payment {
+  id: string;
+  orderId: string;
+  customerId?: string;
+  amount: number;
+  method: 'cash' | 'card' | 'online';
+  status: 'completed' | 'refunded' | 'failed';
+  transactionId?: string;
+  createdAt: Date;
 }
 
 export interface Customer {
