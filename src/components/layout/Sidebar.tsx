@@ -12,6 +12,7 @@ const navItems = [
   { href: '/inventory', icon: '📦', label: 'Inventory' },
   { href: '/staff', icon: '👥', label: 'Staff' },
   { href: '/reports', icon: '📈', label: 'Reports' },
+  { href: '/settings', icon: '⚙️', label: 'Settings' },
 ];
 
 export function Sidebar() {
