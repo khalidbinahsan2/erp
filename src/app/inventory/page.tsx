@@ -39,6 +39,14 @@ export default function InventoryPage() {
   ]);
   const [orderStatusFilter, setOrderStatusFilter] = useState('all');
 
+  // Restock modal state
+  const [showRestockModal, setShowRestockModal] = useState(false);
+  const [restockItems, setRestockItems] = useState<{ itemId: string; name: string; quantity: number; costPerUnit: number }[]>([]);
+  const [restockSupplier, setRestockSupplier] = useState('');
+  const [restockNotes, setRestockNotes] = useState('');
+
+  const suppliers = ['Fresh Foods Co', 'Ocean Catch', 'Prime Meats', 'Green Valley Farms', 'Beverage Distributors'];
+
   const [formData, setFormData] = useState({
     name: '',
     category: 'Ingredients',
@@ -181,6 +189,54 @@ export default function InventoryPage() {
     URL.revokeObjectURL(url);
   };
 
+  // Restock functions
+  const openRestockModal = () => {
+    const lowStock = items.filter(i => i.quantity <= i.reorderLevel).map(item => ({
+      itemId: item.id,
+      name: item.name,
+      quantity: item.reorderLevel - item.quantity + 10,
+      costPerUnit: item.costPerUnit
+    }));
+    setRestockItems(lowStock);
+    setRestockSupplier(suppliers[0]);
+    setRestockNotes('Auto-generated restock order');
+    setShowRestockModal(true);
+  };
+
+  const addRestockItem = () => {
+    setRestockItems([...restockItems, { itemId: '', name: '', quantity: 1, costPerUnit: 0 }]);
+  };
+
+  const removeRestockItem = (index: number) => {
+    setRestockItems(restockItems.filter((_, i) => i !== index));
+  };
+
+  const updateRestockItem = (index: number, field: string, value: string | number) => {
+    const updated = [...restockItems];
+    updated[index] = { ...updated[index], [field]: value };
+    setRestockItems(updated);
+  };
+
+  const submitRestockOrder = () => {
+    const validItems = restockItems.filter(i => i.itemId && i.quantity > 0);
+    if (validItems.length === 0 || !restockSupplier) return;
+    
+    createPurchaseOrder(
+      validItems.map(item => ({
+        itemId: item.itemId,
+        name: item.name,
+        quantity: item.quantity,
+        cost: item.quantity * item.costPerUnit
+      })),
+      restockSupplier,
+      restockNotes
+    );
+    setShowRestockModal(false);
+    setView('orders');
+  };
+
+  const restockTotal = restockItems.reduce((sum, item) => sum + (item.quantity * item.costPerUnit), 0);
+
   // Purchase order functions
   const createPurchaseOrder = (orderItems: { itemId: string; name: string; quantity: number; cost: number }[], supplier: string, notes: string) => {
     const newOrder: PurchaseOrder = {
@@ -244,6 +300,7 @@ export default function InventoryPage() {
             </span>
           )}
           <button className="btn btn-secondary" onClick={exportInventory}>Export CSV</button>
+          <button className="btn btn-secondary" onClick={openRestockModal}>Quick Restock</button>
           <button className="btn btn-primary" onClick={openAddModal}>
             + Add Item
           </button>
@@ -652,6 +709,98 @@ export default function InventoryPage() {
           </div>
           <div className="modal-footer">
             <button className="btn btn-secondary" onClick={() => setShowHistoryModal(false)}>Close</button>
+          </div>
+        </div>
+      </div>
+
+      {/* Restock Modal */}
+      <div className={`modal-overlay ${showRestockModal ? 'active' : ''}`} onClick={() => setShowRestockModal(false)}>
+        <div className="modal" style={{ maxWidth: '600px' }} onClick={e => e.stopPropagation()}>
+          <div className="modal-header">
+            <h2 className="modal-title">Create Restock Order</h2>
+            <button className="modal-close" onClick={() => setShowRestockModal(false)}>×</button>
+          </div>
+          <div className="modal-body">
+            <div className="form-group">
+              <label className="form-label">Supplier</label>
+              <select className="form-select" value={restockSupplier} onChange={e => setRestockSupplier(e.target.value)}>
+                {suppliers.map(s => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Notes</label>
+              <input className="form-input" value={restockNotes} onChange={e => setRestockNotes(e.target.value)} placeholder="Order notes" />
+            </div>
+            
+            <div style={{ marginTop: '16px', marginBottom: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <label className="form-label" style={{ margin: 0 }}>Items to Order</label>
+              <button className="btn btn-secondary" style={{ padding: '4px 12px' }} onClick={addRestockItem}>+ Add Item</button>
+            </div>
+            
+            <div style={{ maxHeight: '300px', overflowY: 'auto', border: '1px solid var(--border)', borderRadius: '8px' }}>
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Item</th>
+                    <th>Quantity</th>
+                    <th>Unit Cost</th>
+                    <th>Total</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {restockItems.map((item, index) => (
+                    <tr key={index}>
+                      <td>
+                        <select className="form-select" value={item.itemId} onChange={e => {
+                          const selectedItem = items.find(i => i.id === e.target.value);
+                          if (selectedItem) {
+                            updateRestockItem(index, 'itemId', selectedItem.id);
+                            updateRestockItem(index, 'name', selectedItem.name);
+                            updateRestockItem(index, 'costPerUnit', selectedItem.costPerUnit);
+                          }
+                        }}>
+                          <option value="">Select item...</option>
+                          {items.map(i => (
+                            <option key={i.id} value={i.id}>{i.name}</option>
+                          ))}
+                        </select>
+                      </td>
+                      <td>
+                        <input 
+                          type="number" 
+                          className="form-input" 
+                          value={item.quantity} 
+                          onChange={e => updateRestockItem(index, 'quantity', parseInt(e.target.value) || 0)}
+                          min="1"
+                        />
+                      </td>
+                      <td className="mono">{formatCurrency(item.costPerUnit)}</td>
+                      <td className="mono">{formatCurrency(item.quantity * item.costPerUnit)}</td>
+                      <td>
+                        <button className="action-btn" style={{ color: 'var(--danger)' }} onClick={() => removeRestockItem(index)}>×</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {restockItems.length === 0 && (
+                <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                  No items added. Click &quot;Add Item&quot; to add items.
+                </div>
+              )}
+            </div>
+
+            <div style={{ marginTop: '16px', padding: '16px', background: 'var(--bg-elevated)', borderRadius: '8px', display: 'flex', justifyContent: 'space-between' }}>
+              <span style={{ fontWeight: '600' }}>Order Total:</span>
+              <span className="mono" style={{ fontSize: '18px', fontWeight: '700', color: 'var(--primary)' }}>{formatCurrency(restockTotal)}</span>
+            </div>
+          </div>
+          <div className="modal-footer">
+            <button className="btn btn-secondary" onClick={() => setShowRestockModal(false)}>Cancel</button>
+            <button className="btn btn-primary" onClick={submitRestockOrder}>Create Order</button>
           </div>
         </div>
       </div>
