@@ -88,7 +88,8 @@ export default function InventoryPage() {
     quantity: '',
     unit: 'pieces',
     reorderLevel: '',
-    costPerUnit: ''
+    costPerUnit: '',
+    salePrice: ''
   });
 
   const getStockStatus = (item: InventoryItem) => {
@@ -130,7 +131,7 @@ export default function InventoryPage() {
 
   const openAddModal = () => {
     setEditingItem(null);
-    setFormData({ name: '', category: 'Ingredients', quantity: '', unit: 'pieces', reorderLevel: '', costPerUnit: '' });
+    setFormData({ name: '', category: 'Ingredients', quantity: '', unit: 'pieces', reorderLevel: '', costPerUnit: '', salePrice: '' });
     setShowModal(true);
   };
 
@@ -142,7 +143,8 @@ export default function InventoryPage() {
       quantity: item.quantity.toString(),
       unit: item.unit,
       reorderLevel: item.reorderLevel.toString(),
-      costPerUnit: item.costPerUnit.toString()
+      costPerUnit: item.costPerUnit.toString(),
+      salePrice: item.salePrice?.toString() || ''
     });
     setShowModal(true);
   };
@@ -163,7 +165,8 @@ export default function InventoryPage() {
         quantity: parseFloat(formData.quantity),
         unit: formData.unit,
         reorderLevel: parseFloat(formData.reorderLevel) || 0,
-        costPerUnit: parseFloat(formData.costPerUnit) || 0
+        costPerUnit: parseFloat(formData.costPerUnit) || 0,
+        salePrice: formData.salePrice ? parseFloat(formData.salePrice) : undefined
       } : i));
     } else {
       const newItem: InventoryItem = {
@@ -173,7 +176,8 @@ export default function InventoryPage() {
         quantity: parseFloat(formData.quantity),
         unit: formData.unit,
         reorderLevel: parseFloat(formData.reorderLevel) || 0,
-        costPerUnit: parseFloat(formData.costPerUnit) || 0
+        costPerUnit: parseFloat(formData.costPerUnit) || 0,
+        salePrice: formData.salePrice ? parseFloat(formData.salePrice) : undefined
       };
       setItems([...items, newItem]);
     }
@@ -835,6 +839,10 @@ export default function InventoryPage() {
             <div className="form-group">
               <label className="form-label">Cost per Unit</label>
               <input className="form-input" type="number" step="0.01" value={formData.costPerUnit} onChange={e => setFormData({ ...formData, costPerUnit: e.target.value })} placeholder="0.00" />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Sale Price (Optional)</label>
+              <input className="form-input" type="number" step="0.01" value={formData.salePrice || ''} onChange={e => setFormData({ ...formData, salePrice: e.target.value })} placeholder="0.00" />
             </div>
           </div>
           <div className="modal-footer">

@@ -208,22 +208,38 @@ export const tables: Table[] = [
   { id: '15', number: 15, capacity: 10, status: 'occupied', currentOrderId: 'ORD-006' }
 ];
 
+export interface MenuItemRecipe {
+  menuItemId: string;
+  ingredients: { inventoryItemId: string; quantity: number }[];
+}
+
+export const menuItemRecipes: MenuItemRecipe[] = [
+  { menuItemId: '1', ingredients: [{ inventoryItemId: '1', quantity: 0.3 }, { inventoryItemId: '4', quantity: 0.1 }, { inventoryItemId: '11', quantity: 0.02 }] },
+  { menuItemId: '2', ingredients: [{ inventoryItemId: '2', quantity: 0.25 }, { inventoryItemId: '14', quantity: 1 }, { inventoryItemId: '5', quantity: 0.05 }] },
+  { menuItemId: '3', ingredients: [{ inventoryItemId: '12', quantity: 0.2 }, { inventoryItemId: '1', quantity: 0.1 }] },
+  { menuItemId: '4', ingredients: [{ inventoryItemId: '3', quantity: 0.25 }, { inventoryItemId: '5', quantity: 0.03 }] },
+  { menuItemId: '5', ingredients: [{ inventoryItemId: '4', quantity: 0.05 }] },
+  { menuItemId: '6', ingredients: [{ inventoryItemId: '6', quantity: 0.3 }] },
+  { menuItemId: '7', ingredients: [{ inventoryItemId: '13', quantity: 0.15 }, { inventoryItemId: '5', quantity: 0.02 }] },
+  { menuItemId: '9', ingredients: [{ inventoryItemId: '12', quantity: 0.15 }, { inventoryItemId: '13', quantity: 0.1 }] },
+];
+
 export const inventoryItems: InventoryItem[] = [
-  { id: '1', name: 'Arborio Rice', category: 'Ingredients', quantity: 15, unit: 'kg', reorderLevel: 5, costPerUnit: 4.50 },
-  { id: '2', name: 'Atlantic Salmon', category: 'Ingredients', quantity: 8, unit: 'kg', reorderLevel: 3, costPerUnit: 18.00 },
-  { id: '3', name: 'Wagyu Beef', category: 'Ingredients', quantity: 12, unit: 'kg', reorderLevel: 4, costPerUnit: 45.00 },
-  { id: '4', name: 'Parmesan Cheese', category: 'Ingredients', quantity: 3, unit: 'kg', reorderLevel: 2, costPerUnit: 22.00 },
-  { id: '5', name: 'Olive Oil', category: 'Ingredients', quantity: 20, unit: 'liters', reorderLevel: 5, costPerUnit: 8.00 },
-  { id: '6', name: 'Ramen Noodles', category: 'Ingredients', quantity: 25, unit: 'kg', reorderLevel: 10, costPerUnit: 3.50 },
+  { id: '1', name: 'Arborio Rice', category: 'Ingredients', quantity: 15, unit: 'kg', reorderLevel: 5, costPerUnit: 4.50, salePrice: 9.00 },
+  { id: '2', name: 'Atlantic Salmon', category: 'Ingredients', quantity: 8, unit: 'kg', reorderLevel: 3, costPerUnit: 18.00, salePrice: 36.00 },
+  { id: '3', name: 'Wagyu Beef', category: 'Ingredients', quantity: 12, unit: 'kg', reorderLevel: 4, costPerUnit: 45.00, salePrice: 90.00 },
+  { id: '4', name: 'Parmesan Cheese', category: 'Ingredients', quantity: 3, unit: 'kg', reorderLevel: 2, costPerUnit: 22.00, salePrice: 44.00 },
+  { id: '5', name: 'Olive Oil', category: 'Ingredients', quantity: 20, unit: 'liters', reorderLevel: 5, costPerUnit: 8.00, salePrice: 16.00 },
+  { id: '6', name: 'Ramen Noodles', category: 'Ingredients', quantity: 25, unit: 'kg', reorderLevel: 10, costPerUnit: 3.50, salePrice: 7.00 },
   { id: '7', name: 'Napkins', category: 'Supplies', quantity: 500, unit: 'pieces', reorderLevel: 100, costPerUnit: 0.10 },
   { id: '8', name: 'To-Go Containers', category: 'Supplies', quantity: 150, unit: 'pieces', reorderLevel: 50, costPerUnit: 0.75 },
-  { id: '9', name: 'House Red Wine', category: 'Beverages', quantity: 36, unit: 'bottles', reorderLevel: 12, costPerUnit: 8.00 },
-  { id: '10', name: 'Sparkling Water', category: 'Beverages', quantity: 48, unit: 'bottles', reorderLevel: 24, costPerUnit: 1.50 },
-  { id: '11', name: 'Black Truffle', category: 'Ingredients', quantity: 0.5, unit: 'kg', reorderLevel: 0.3, costPerUnit: 200.00 },
-  { id: '12', name: 'Lettuce', category: 'Ingredients', quantity: 2, unit: 'kg', reorderLevel: 5, costPerUnit: 2.00 },
-  { id: '13', name: 'Tomatoes', category: 'Ingredients', quantity: 8, unit: 'kg', reorderLevel: 4, costPerUnit: 3.00 },
-  { id: '14', name: 'Lemon', category: 'Ingredients', quantity: 30, unit: 'pieces', reorderLevel: 15, costPerUnit: 0.40 },
-  { id: '15', name: 'Mint Leaves', category: 'Ingredients', quantity: 0.5, unit: 'kg', reorderLevel: 0.3, costPerUnit: 15.00 }
+  { id: '9', name: 'House Red Wine', category: 'Beverages', quantity: 36, unit: 'bottles', reorderLevel: 12, costPerUnit: 8.00, salePrice: 16.00 },
+  { id: '10', name: 'Sparkling Water', category: 'Beverages', quantity: 48, unit: 'bottles', reorderLevel: 24, costPerUnit: 1.50, salePrice: 3.00 },
+  { id: '11', name: 'Black Truffle', category: 'Ingredients', quantity: 0.5, unit: 'kg', reorderLevel: 0.3, costPerUnit: 200.00, salePrice: 400.00 },
+  { id: '12', name: 'Lettuce', category: 'Ingredients', quantity: 2, unit: 'kg', reorderLevel: 5, costPerUnit: 2.00, salePrice: 4.00 },
+  { id: '13', name: 'Tomatoes', category: 'Ingredients', quantity: 8, unit: 'kg', reorderLevel: 4, costPerUnit: 3.00, salePrice: 6.00 },
+  { id: '14', name: 'Lemon', category: 'Ingredients', quantity: 30, unit: 'pieces', reorderLevel: 15, costPerUnit: 0.40, salePrice: 0.80 },
+  { id: '15', name: 'Mint Leaves', category: 'Ingredients', quantity: 0.5, unit: 'kg', reorderLevel: 0.3, costPerUnit: 15.00, salePrice: 30.00 }
 ];
 
 export const staff: Staff[] = [

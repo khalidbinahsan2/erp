@@ -13,6 +13,7 @@ const navItems = [
   { href: '/inventory/purchase-orders', icon: '🛒', label: 'Purchase Orders', sub: true },
   { href: '/staff', icon: '👥', label: 'Staff' },
   { href: '/reports', icon: '📈', label: 'Reports' },
+  { href: '/reports/profits', icon: '💵', label: 'Profits', sub: true },
   { href: '/settings', icon: '⚙️', label: 'Settings' },
 ];
 

@@ -44,6 +44,7 @@ export interface InventoryItem {
   unit: string;
   reorderLevel: number;
   costPerUnit: number;
+  salePrice?: number;
 }
 
 export interface Shift {
