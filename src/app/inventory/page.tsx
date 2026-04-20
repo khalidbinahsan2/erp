@@ -8,18 +8,36 @@ function formatCurrency(value: number): string {
   return `$${value.toFixed(2)}`;
 }
 
+interface PurchaseOrder {
+  id: string;
+  items: { itemId: string; name: string; quantity: number; cost: number }[];
+  total: number;
+  status: 'pending' | 'ordered' | 'received' | 'cancelled';
+  supplier: string;
+  createdAt: string;
+  notes: string;
+}
+
 export default function InventoryPage() {
   const [items, setItems] = useState<InventoryItem[]>(initialInventory);
-  const [view, setView] = useState<'list' | 'low-stock' | 'valuation'>('list');
+  const [view, setView] = useState<'list' | 'low-stock' | 'valuation' | 'orders'>('list');
   const [searchTerm, setSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [showModal, setShowModal] = useState(false);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [showOrderModal, setShowOrderModal] = useState(false);
   const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null);
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
   const [selectedItems, setSelectedItems] = useState<string[]>([]);
   const [sortBy, setSortBy] = useState<'name' | 'quantity' | 'cost'>('name');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+
+  // Purchase orders state
+  const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([
+    { id: 'PO-001', items: [{ itemId: '1', name: 'Arborio Rice', quantity: 20, cost: 90 }], total: 90, status: 'pending', supplier: 'Fresh Foods Co', createdAt: '2024-04-20', notes: 'Weekly order' },
+    { id: 'PO-002', items: [{ itemId: '2', name: 'Atlantic Salmon', quantity: 10, cost: 180 }], total: 180, status: 'received', supplier: 'Ocean Catch', createdAt: '2024-04-18', notes: '' },
+  ]);
+  const [orderStatusFilter, setOrderStatusFilter] = useState('all');
 
   const [formData, setFormData] = useState({
     name: '',
@@ -163,6 +181,58 @@ export default function InventoryPage() {
     URL.revokeObjectURL(url);
   };
 
+  // Purchase order functions
+  const createPurchaseOrder = (orderItems: { itemId: string; name: string; quantity: number; cost: number }[], supplier: string, notes: string) => {
+    const newOrder: PurchaseOrder = {
+      id: `PO-${String(purchaseOrders.length + 1).padStart(3, '0')}`,
+      items: orderItems,
+      total: orderItems.reduce((sum, item) => sum + item.cost, 0),
+      status: 'pending',
+      supplier,
+      createdAt: new Date().toISOString().split('T')[0],
+      notes
+    };
+    setPurchaseOrders([...purchaseOrders, newOrder]);
+  };
+
+  const updateOrderStatus = (orderId: string, status: PurchaseOrder['status']) => {
+    setPurchaseOrders(purchaseOrders.map(order => 
+      order.id === orderId ? { ...order, status } : order
+    ));
+  };
+
+  const receiveOrder = (orderId: string) => {
+    const order = purchaseOrders.find(o => o.id === orderId);
+    if (!order) return;
+    
+    order.items.forEach(orderItem => {
+      const item = items.find(i => i.id === orderItem.itemId);
+      if (item) {
+        adjustQuantity(item.id, orderItem.quantity);
+      }
+    });
+    updateOrderStatus(orderId, 'received');
+  };
+
+  const cancelOrder = (orderId: string) => {
+    if (confirm('Are you sure you want to cancel this order?')) {
+      updateOrderStatus(orderId, 'cancelled');
+    }
+  };
+
+  const deleteOrder = (orderId: string) => {
+    if (confirm('Are you sure you want to delete this order?')) {
+      setPurchaseOrders(purchaseOrders.filter(o => o.id !== orderId));
+    }
+  };
+
+  const getOrdersByStatus = (status: PurchaseOrder['status']) => {
+    return purchaseOrders.filter(o => o.status === status);
+  };
+
+  const pendingTotal = getOrdersByStatus('pending').reduce((sum, o) => sum + o.total, 0);
+  const orderedTotal = getOrdersByStatus('ordered').reduce((sum, o) => sum + o.total, 0);
+
   return (
     <>
       <div className="page-header">
@@ -184,6 +254,9 @@ export default function InventoryPage() {
         <button className={`tab ${view === 'list' ? 'active' : ''}`} onClick={() => setView('list')}>All Items</button>
         <button className={`tab ${view === 'low-stock' ? 'active' : ''}`} onClick={() => setView('low-stock')}>
           Low Stock {lowStockItems.length > 0 && `(${lowStockItems.length})`}
+        </button>
+        <button className={`tab ${view === 'orders' ? 'active' : ''}`} onClick={() => setView('orders')}>
+          Orders {purchaseOrders.filter(o => o.status === 'pending' || o.status === 'ordered').length > 0 && `(${purchaseOrders.filter(o => o.status === 'pending' || o.status === 'ordered').length})`}
         </button>
         <button className={`tab ${view === 'valuation' ? 'active' : ''}`} onClick={() => setView('valuation')}>Valuation</button>
       </div>
@@ -279,12 +352,108 @@ export default function InventoryPage() {
                   );
                 })}
               </tbody>
-            </table>
+</table>
             {filteredItems.length === 0 && (
               <div className="empty-state">
                 <div className="empty-state-text">No items found</div>
               </div>
             )}
+          </div>
+        </>
+      )}
+
+      {view === 'orders' && (
+        <>
+          <div className="stat-grid" style={{ marginBottom: '24px' }}>
+            <div className="stat-card" style={{ background: 'var(--warning)' }}>
+              <div className="stat-value" style={{ fontSize: '32px' }}>{pendingTotal}</div>
+              <div className="stat-label">Pending</div>
+            </div>
+            <div className="stat-card" style={{ background: 'var(--primary)' }}>
+              <div className="stat-value" style={{ fontSize: '32px' }}>{orderedTotal}</div>
+              <div className="stat-label">Ordered</div>
+            </div>
+            <div className="stat-card" style={{ background: 'var(--success)' }}>
+              <div className="stat-value" style={{ fontSize: '32px' }}>
+                {purchaseOrders.filter(o => o.status === 'received').length}
+              </div>
+              <div className="stat-label">Received</div>
+            </div>
+          </div>
+
+          <div className="filter-bar">
+            <select className="form-select" style={{ width: '150px' }} value={orderStatusFilter} onChange={e => setOrderStatusFilter(e.target.value)}>
+              <option value="all">All Orders</option>
+              <option value="pending">Pending</option>
+              <option value="ordered">Ordered</option>
+              <option value="received">Received</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+          </div>
+
+          <div className="data-card">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Order ID</th>
+                  <th>Date</th>
+                  <th>Supplier</th>
+                  <th>Items</th>
+                  <th>Total</th>
+                  <th>Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {purchaseOrders
+                  .filter(o => orderStatusFilter === 'all' || o.status === orderStatusFilter)
+                  .map(order => (
+                    <tr key={order.id}>
+                      <td className="mono">{order.id}</td>
+                      <td>{order.createdAt}</td>
+                      <td>{order.supplier}</td>
+                      <td>
+                        {order.items.map((item, idx) => (
+                          <div key={idx} style={{ fontSize: '14px' }}>
+                            {item.name} x{item.quantity}
+                          </div>
+                        ))}
+                      </td>
+                      <td className="mono" style={{ fontWeight: '600' }}>{formatCurrency(order.total)}</td>
+                      <td>
+                        <span className={`badge ${
+                          order.status === 'pending' ? 'badge-pending' :
+                          order.status === 'ordered' ? 'badge-in_progress' :
+                          order.status === 'received' ? 'badge-available' :
+                          'badge-cancelled'
+                        }`}>
+                          {order.status}
+                        </span>
+                      </td>
+                      <td>
+                        {order.status === 'pending' && (
+                          <>
+                            <button className="action-btn edit" onClick={() => updateOrderStatus(order.id, 'ordered')}>Order</button>
+                            <button className="action-btn" style={{ marginLeft: '8px', color: 'var(--danger)' }} onClick={() => cancelOrder(order.id)}>Cancel</button>
+                          </>
+                        )}
+                        {order.status === 'ordered' && (
+                          <>
+                            <button className="btn btn-primary" onClick={() => receiveOrder(order.id)}>Receive</button>
+                            <button className="action-btn" style={{ marginLeft: '8px', color: 'var(--danger)' }} onClick={() => cancelOrder(order.id)}>Cancel</button>
+                          </>
+                        )}
+                        {order.status === 'received' && (
+                          <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Completed</span>
+                        )}
+                        {order.status === 'cancelled' && (
+                          <button className="action-btn" style={{ color: 'var(--danger)' }} onClick={() => deleteOrder(order.id)}>Delete</button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
           </div>
         </>
       )}
