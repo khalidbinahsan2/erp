@@ -16,6 +16,7 @@ const navItems = [
   { href: '/customers', icon: '👤', label: 'Customers' },
   { href: '/staff', icon: '👥', label: 'Staff' },
   { href: '/reports', icon: '📈', label: 'Reports' },
+  { href: '/reports/item-analytics', icon: '📊', label: 'Item Analytics', sub: true },
   { href: '/reports/profits', icon: '💵', label: 'Profits', sub: true },
   { href: '/settings', icon: '⚙️', label: 'Settings' },
 ];
