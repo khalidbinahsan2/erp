@@ -25,7 +25,13 @@ interface PurchaseOrderItem {
 
 interface PurchaseOrder {
   id: string;
-  items: PurchaseOrderItem[];
+  items: ({ itemId: string; name: string; quantity: number; cost: number; returned?: number; returnReason?: string })[];
+  subtotal?: number;
+  shippingCost?: number;
+  taxRate?: number;
+  taxAmount?: number;
+  discount?: number;
+  discountAmount?: number;
   total: number;
   status: 'pending' | 'ordered' | 'received' | 'used' | 'returned' | 'partially_returned' | 'cancelled';
   supplier: string;
