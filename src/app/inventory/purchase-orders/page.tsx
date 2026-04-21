@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { inventoryItems as initialInventory } from '@/lib/mockData';
 import { InventoryItem } from '@/types';
 
@@ -122,21 +122,24 @@ export default function PurchaseOrdersPage() {
   const [showReturnModal, setShowReturnModal] = useState(false);
   const [returnItems, setReturnItems] = useState<{ itemId: string; quantity: number; reason: string }[]>([]);
 
-  const addQuickRestockItem = (itemId: string) => {
-    if (!quickRestockItems.find(i => i.itemId === itemId)) {
-      setQuickRestockItems([...quickRestockItems, { itemId, quantity: 10 }]);
-    }
-  };
+  const addQuickRestockItem = useCallback((itemId: string) => {
+    setQuickRestockItems(prev => {
+      if (prev.find(i => i.itemId === itemId)) return prev;
+      return [...prev, { itemId, quantity: 10 }];
+    });
+  }, []);
 
-  const updateQuickRestockQty = (itemId: string, qty: number) => {
-    setQuickRestockItems(quickRestockItems.map(i => i.itemId === itemId ? { ...i, quantity: Math.max(1, qty) } : i));
-  };
+  const updateQuickRestockQty = useCallback((itemId: string, qty: number) => {
+    setQuickRestockItems(prev => prev.map(i => 
+      i.itemId === itemId ? { ...i, quantity: Math.max(1, qty) } : i
+    ));
+  }, []);
 
-  const removeQuickRestockItem = (itemId: string) => {
-    setQuickRestockItems(quickRestockItems.filter(i => i.itemId !== itemId));
-  };
+  const removeQuickRestockItem = useCallback((itemId: string) => {
+    setQuickRestockItems(prev => prev.filter(i => i.itemId !== itemId));
+  }, []);
 
-  const submitQuickRestock = () => {
+  const submitQuickRestock = useCallback(() => {
     if (quickRestockItems.length === 0) return;
     const orderItems = quickRestockItems.map(ri => {
       const invItem = items.find(i => i.id === ri.itemId);
@@ -145,26 +148,27 @@ export default function PurchaseOrdersPage() {
     const total = orderItems.reduce((sum, i) => sum + i.quantity * i.cost, 0);
     const today = new Date().toISOString().split('T')[0];
     
-    const order: PurchaseOrder = {
-      id: `PO-${String(purchaseOrders.length + 1).padStart(3, '0')}`,
-      items: orderItems,
-      total,
-      status: 'ordered',
-      supplier: 'Quick Restock',
-      createdAt: today,
-      notes: 'Quick restock order',
-      timeline: [
-        { date: today, status: 'pending', notes: 'Created via quick restock' },
-        { date: today, status: 'ordered', notes: 'Auto-ordered from quick restock' }
-      ]
-    };
-    
-    setPurchaseOrders([order, ...purchaseOrders]);
+    setPurchaseOrders(prev => {
+      const order: PurchaseOrder = {
+        id: `PO-${String(prev.length + 1).padStart(3, '0')}`,
+        items: orderItems,
+        total,
+        status: 'ordered',
+        supplier: 'Quick Restock',
+        createdAt: today,
+        notes: 'Quick restock order',
+        timeline: [
+          { date: today, status: 'pending', notes: 'Created via quick restock' },
+          { date: today, status: 'ordered', notes: 'Auto-ordered from quick restock' }
+        ]
+      };
+      return [order, ...prev];
+    });
     setQuickRestockItems([]);
     setShowQuickRestockModal(false);
-  };
+  }, [quickRestockItems, items]);
 
-  const openReturnModal = (order: PurchaseOrder) => {
+  const openReturnModal = useCallback((order: PurchaseOrder) => {
     setSelectedOrder(order);
     setReturnItems(order.items.map(item => ({
       itemId: item.itemId,
@@ -172,31 +176,31 @@ export default function PurchaseOrdersPage() {
       reason: ''
     })));
     setShowReturnModal(true);
-  };
+  }, []);
 
-  const updateReturnQuantity = (itemId: string, qty: number) => {
+  const updateReturnQuantity = useCallback((itemId: string, qty: number) => {
     const orderItem = selectedOrder?.items.find(i => i.itemId === itemId);
     const maxQty = orderItem ? orderItem.quantity - (orderItem.returned || 0) : 0;
     const validQty = Math.max(0, Math.min(qty, maxQty));
     
-    setReturnItems(returnItems.map(i => 
+    setReturnItems(prev => prev.map(i => 
       i.itemId === itemId ? { ...i, quantity: validQty } : i
     ));
-  };
+  }, [selectedOrder]);
 
-  const updateReturnReason = (itemId: string, reason: string) => {
-    setReturnItems(returnItems.map(i => 
+  const updateReturnReason = useCallback((itemId: string, reason: string) => {
+    setReturnItems(prev => prev.map(i => 
       i.itemId === itemId ? { ...i, reason } : i
     ));
-  };
+  }, []);
 
-  const submitReturn = () => {
+  const submitReturn = useCallback(() => {
     if (!selectedOrder || returnItems.every(i => i.quantity === 0)) return;
     const today = new Date().toISOString().split('T')[0];
     
     const returnedItems = returnItems.filter(i => i.quantity > 0);
     
-    setPurchaseOrders(purchaseOrders.map(o => {
+    setPurchaseOrders(prev => prev.map(o => {
       if (o.id !== selectedOrder.id) return o;
       
       const updatedItems = o.items.map(item => {
@@ -234,7 +238,74 @@ export default function PurchaseOrdersPage() {
     setReturnItems([]);
     setSelectedOrder(null);
     setShowReturnModal(false);
-  };
+  }, [selectedOrder, returnItems]);
+
+  // Status change handlers
+  const handleOrderStatusToOrdered = useCallback((order: PurchaseOrder) => {
+    const today = new Date().toISOString().split('T')[0];
+    setPurchaseOrders(prev => prev.map(o => o.id === order.id ? { 
+      ...o, 
+      status: 'ordered',
+      timeline: [
+        ...(o.timeline || [{ date: o.createdAt, status: 'pending', notes: o.notes }]),
+        { date: today, status: 'ordered', notes: 'Order placed with supplier' }
+      ]
+    } : o));
+  }, []);
+
+  const handleOrderStatusToReceived = useCallback((order: PurchaseOrder) => {
+    const today = new Date().toISOString().split('T')[0];
+    setPurchaseOrders(prev => prev.map(o => o.id === order.id ? { 
+      ...o, 
+      status: 'received',
+      timeline: [
+        ...(o.timeline || [{ date: o.createdAt, status: 'pending', notes: o.notes }]),
+        { date: today, status: 'received', notes: 'Delivery received and checked' }
+      ]
+    } : o));
+  }, []);
+
+  const handleOrderStatusToUsed = useCallback((order: PurchaseOrder) => {
+    const today = new Date().toISOString().split('T')[0];
+    setPurchaseOrders(prev => prev.map(o => o.id === order.id ? { 
+      ...o, 
+      status: 'used',
+      timeline: [
+        ...(o.timeline || [{ date: o.createdAt, status: 'pending', notes: o.notes }]),
+        { date: today, status: 'used', notes: 'Inventory items marked as used' }
+      ]
+    } : o));
+  }, []);
+
+  const handleRestockOrder = useCallback((order: PurchaseOrder) => {
+    const today = new Date().toISOString().split('T')[0];
+    setPurchaseOrders(prev => {
+      const restockOrder: PurchaseOrder = {
+        id: `PO-${String(prev.length + 1).padStart(3, '0')}`,
+        items: order.items,
+        total: order.total,
+        status: 'pending',
+        supplier: order.supplier,
+        createdAt: today,
+        notes: `Restock from ${order.id}`,
+        timeline: [{ date: today, status: 'pending', notes: 'Auto restock order' }]
+      };
+      return [restockOrder, ...prev];
+    });
+  }, []);
+
+  const handleCancelOrder = useCallback((order: PurchaseOrder) => {
+    setPurchaseOrders(prev => prev.map(o => o.id === order.id ? { ...o, status: 'cancelled' } : o));
+  }, []);
+
+  const handleDeleteOrder = useCallback((orderId: string) => {
+    setPurchaseOrders(prev => prev.filter(o => o.id !== orderId));
+  }, []);
+
+  const handleViewHistory = useCallback((order: PurchaseOrder) => {
+    setSelectedOrder(order);
+    setShowDetailModal(true);
+  }, []);
 
   const suppliers = ['Fresh Foods Co', 'Ocean Catch', 'Prime Meats', 'Green Valley Farms', 'Beverage Distributors', 'Asian Supplies Co', 'Italian Imports', 'Fresh Farms', 'Restaurant Supply', 'Herb Garden'];
 
@@ -253,24 +324,24 @@ export default function PurchaseOrdersPage() {
   const [itemQty, setItemQty] = useState(1);
   const [itemCost, setItemCost] = useState(0);
 
-  const addItemToOrder = () => {
+  const addItemToOrder = useCallback(() => {
     if (!selectedItem || itemQty <= 0) return;
     const invItem = items.find(i => i.id === selectedItem);
     if (!invItem) return;
-    setNewOrder({
-      ...newOrder,
-      items: [...newOrder.items, { itemId: selectedItem, name: invItem.name, quantity: itemQty, cost: itemCost || invItem.costPerUnit }]
-    });
+    setNewOrder(prev => ({
+      ...prev,
+      items: [...prev.items, { itemId: selectedItem, name: invItem.name, quantity: itemQty, cost: itemCost || invItem.costPerUnit }]
+    }));
     setSelectedItem('');
     setItemQty(1);
     setItemCost(0);
-  };
+  }, [selectedItem, itemQty, itemCost, items]);
 
-  const removeItem = (idx: number) => {
-    setNewOrder({ ...newOrder, items: newOrder.items.filter((_, i) => i !== idx) });
-  };
+  const removeItem = useCallback((idx: number) => {
+    setNewOrder(prev => ({ ...prev, items: prev.items.filter((_, i) => i !== idx) }));
+  }, []);
 
-  const createOrder = () => {
+  const createOrder = useCallback(() => {
     if (!newOrder.supplier || newOrder.items.length === 0) return;
     const subtotal = newOrder.items.reduce((sum, item) => sum + item.quantity * item.cost, 0);
     const shippingCost = newOrder.shippingCost || 0;
@@ -279,26 +350,28 @@ export default function PurchaseOrdersPage() {
     const total = subtotal + shippingCost + taxAmount - discountAmount;
     const today = new Date().toISOString().split('T')[0];
     
-    const order: PurchaseOrder = {
-      id: `PO-${String(purchaseOrders.length + 1).padStart(3, '0')}`,
-      items: newOrder.items,
-      subtotal,
-      shippingCost,
-      taxRate: newOrder.taxRate,
-      taxAmount,
-      discount: newOrder.discount,
-      discountAmount,
-      total,
-      status: 'pending',
-      supplier: newOrder.supplier,
-      createdAt: today,
-      notes: newOrder.notes,
-      deliveryDate: newOrder.deliveryDate,
-      priority: newOrder.priority,
-      reference: newOrder.reference,
-      timeline: [{ date: today, status: 'pending', notes: newOrder.notes || 'Order created' }]
-    };
-    setPurchaseOrders([order, ...purchaseOrders]);
+    setPurchaseOrders(prev => {
+      const order: PurchaseOrder = {
+        id: `PO-${String(prev.length + 1).padStart(3, '0')}`,
+        items: newOrder.items,
+        subtotal,
+        shippingCost,
+        taxRate: newOrder.taxRate,
+        taxAmount,
+        discount: newOrder.discount,
+        discountAmount,
+        total,
+        status: 'pending',
+        supplier: newOrder.supplier,
+        createdAt: today,
+        notes: newOrder.notes,
+        deliveryDate: newOrder.deliveryDate,
+        priority: newOrder.priority,
+        reference: newOrder.reference,
+        timeline: [{ date: today, status: 'pending', notes: newOrder.notes || 'Order created' }]
+      };
+      return [order, ...prev];
+    });
     setShowCreateModal(false);
     setNewOrder({ 
       supplier: '', 
@@ -311,7 +384,7 @@ export default function PurchaseOrdersPage() {
       taxRate: 0, 
       discount: 0 
     });
-  };
+  }, [newOrder]);
 
   // Calculate monthly purchases
   const getMonthlyPurchases = (year: number): MonthlyPurchase[] => {
@@ -411,29 +484,52 @@ export default function PurchaseOrdersPage() {
     return result;
   };
 
-  const monthlyData = getMonthlyPurchases(selectedYear);
-  const yearlyData = getYearlyPurchases();
-  const currentMonthData = monthlyData[selectedMonth];
-  const currentYearData = yearlyData.find(y => y.year === selectedYear);
+  const monthlyData = useMemo(() => getMonthlyPurchases(selectedYear), [selectedYear, purchaseOrders, items]);
+  const yearlyData = useMemo(() => getYearlyPurchases(), [purchaseOrders, items]);
+  const currentMonthData = useMemo(() => monthlyData[selectedMonth], [monthlyData, selectedMonth]);
+  const currentYearData = useMemo(() => yearlyData.find(y => y.year === selectedYear), [yearlyData, selectedYear]);
 
-  const topPurchasedMonth = currentMonthData?.items.sort((a, b) => b.quantity - a.quantity).slice(0, 5) || [];
-  const topPurchasedYear = currentYearData?.items.sort((a, b) => b.quantity - a.quantity).slice(0, 5) || [];
+  const topPurchasedMonth = useMemo(() => 
+    [...(currentMonthData?.items || [])].sort((a, b) => b.quantity - a.quantity).slice(0, 5), 
+  [currentMonthData]);
+  
+  const topPurchasedYear = useMemo(() => 
+    [...(currentYearData?.items || [])].sort((a, b) => b.quantity - a.quantity).slice(0, 5), 
+  [currentYearData]);
 
-  const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  const monthNames = useMemo(() => 
+    ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'],
+  []);
 
-  const filteredOrders = purchaseOrders.filter(o => {
-    const matchesStatus = statusFilter === 'all' || o.status === statusFilter;
-    const matchesSupplier = supplierFilter === 'all' || o.supplier === supplierFilter;
-    const matchesSearch = !searchTerm || o.id.toLowerCase().includes(searchTerm.toLowerCase()) || 
-      o.items.some(i => i.name.toLowerCase().includes(searchTerm.toLowerCase()));
-    return matchesStatus && matchesSupplier && matchesSearch;
-  }).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  const filteredOrders = useMemo(() => {
+    return purchaseOrders.filter(o => {
+      const matchesStatus = statusFilter === 'all' || o.status === statusFilter;
+      const matchesSupplier = supplierFilter === 'all' || o.supplier === supplierFilter;
+      const matchesSearch = !searchTerm || o.id.toLowerCase().includes(searchTerm.toLowerCase()) || 
+        o.items.some(i => i.name.toLowerCase().includes(searchTerm.toLowerCase()));
+      return matchesStatus && matchesSupplier && matchesSearch;
+    }).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }, [purchaseOrders, statusFilter, supplierFilter, searchTerm]);
 
-  const pendingTotal = purchaseOrders.filter(o => o.status === 'pending').reduce((sum, o) => sum + o.total, 0);
-  const orderedTotal = purchaseOrders.filter(o => o.status === 'ordered').reduce((sum, o) => sum + o.total, 0);
-  const receivedTotal = purchaseOrders.filter(o => o.status === 'received').reduce((sum, o) => sum + o.total, 0);
-  const usedTotal = purchaseOrders.filter(o => o.status === 'used').reduce((sum, o) => sum + o.total, 0);
-  const cancelledTotal = purchaseOrders.filter(o => o.status === 'cancelled').reduce((sum, o) => sum + o.total, 0);
+  const pendingTotal = useMemo(() => 
+    purchaseOrders.filter(o => o.status === 'pending').reduce((sum, o) => sum + o.total, 0), 
+  [purchaseOrders]);
+  
+  const orderedTotal = useMemo(() => 
+    purchaseOrders.filter(o => o.status === 'ordered').reduce((sum, o) => sum + o.total, 0), 
+  [purchaseOrders]);
+  
+  const receivedTotal = useMemo(() => 
+    purchaseOrders.filter(o => o.status === 'received').reduce((sum, o) => sum + o.total, 0), 
+  [purchaseOrders]);
+  
+  const usedTotal = useMemo(() => 
+    purchaseOrders.filter(o => o.status === 'used').reduce((sum, o) => sum + o.total, 0), 
+  [purchaseOrders]);
+  
+  const cancelledTotal = useMemo(() => 
+    purchaseOrders.filter(o => o.status === 'cancelled').reduce((sum, o) => sum + o.total, 0), 
+  [purchaseOrders]);
 
   return (
     <>
@@ -552,66 +648,22 @@ export default function PurchaseOrdersPage() {
                     </td>
                     <td>
                   <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                      {order.status === 'pending' && (
-                        <button className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '13px' }} onClick={() => {
-                          const today = new Date().toISOString().split('T')[0];
-                          setPurchaseOrders(purchaseOrders.map(o => o.id === order.id ? { 
-                            ...o, 
-                            status: 'ordered',
-                            timeline: [
-                              ...(o.timeline || [{ date: o.createdAt, status: 'pending', notes: o.notes }]),
-                              { date: today, status: 'ordered', notes: 'Order placed with supplier' }
-                            ]
-                          } : o));
-                        }}>Order</button>
-                      )}
-                      {order.status === 'ordered' && (
-                        <button className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '13px' }} onClick={() => {
-                          const today = new Date().toISOString().split('T')[0];
-                          setPurchaseOrders(purchaseOrders.map(o => o.id === order.id ? { 
-                            ...o, 
-                            status: 'received',
-                            timeline: [
-                              ...(o.timeline || [{ date: o.createdAt, status: 'pending', notes: o.notes }]),
-                              { date: today, status: 'received', notes: 'Delivery received and checked' }
-                            ]
-                          } : o));
-                        }}>Receive</button>
-                      )}
-                      {order.status === 'received' && (
-                        <>
-                          <button className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '13px' }} onClick={() => {
-                            const today = new Date().toISOString().split('T')[0];
-                            setPurchaseOrders(purchaseOrders.map(o => o.id === order.id ? { 
-                              ...o, 
-                              status: 'used',
-                              timeline: [
-                                ...(o.timeline || [{ date: o.createdAt, status: 'pending', notes: o.notes }]),
-                                { date: today, status: 'used', notes: 'Inventory items marked as used' }
-                              ]
-                            } : o));
-                          }}>Used</button>
-                           <button className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '13px', borderColor: '#f97316', color: '#f97316' }} onClick={() => openReturnModal(order)}>↩️ Return</button>
-                        </>
-                      )}
-                      {order.status === 'used' && (
-                        <button className="btn btn-primary" style={{ padding: '6px 12px', fontSize: '13px' }} onClick={() => {
-                          // Create restock duplicate order
-                          const today = new Date().toISOString().split('T')[0];
-                          const restockOrder: PurchaseOrder = {
-                            id: `PO-${String(purchaseOrders.length + 1).padStart(3, '0')}`,
-                            items: order.items,
-                            total: order.total,
-                            status: 'pending',
-                            supplier: order.supplier,
-                            createdAt: today,
-                            notes: `Restock from ${order.id}`,
-                            timeline: [{ date: today, status: 'pending', notes: 'Auto restock order' }]
-                          };
-                          setPurchaseOrders([restockOrder, ...purchaseOrders]);
-                        }}>🔄 Restock</button>
-                      )}
-                      <button className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '13px' }} onClick={() => { setSelectedOrder(order); setShowDetailModal(true); }}>History</button>
+                       {order.status === 'pending' && (
+                         <button className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '13px' }} onClick={() => handleOrderStatusToOrdered(order)}>Order</button>
+                       )}
+                       {order.status === 'ordered' && (
+                         <button className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '13px' }} onClick={() => handleOrderStatusToReceived(order)}>Receive</button>
+                       )}
+                       {order.status === 'received' && (
+                         <>
+                           <button className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '13px' }} onClick={() => handleOrderStatusToUsed(order)}>Used</button>
+                            <button className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '13px', borderColor: '#f97316', color: '#f97316' }} onClick={() => openReturnModal(order)}>↩️ Return</button>
+                         </>
+                       )}
+                       {order.status === 'used' && (
+                         <button className="btn btn-primary" style={{ padding: '6px 12px', fontSize: '13px' }} onClick={() => handleRestockOrder(order)}>🔄 Restock</button>
+                       )}
+                       <button className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '13px' }} onClick={() => handleViewHistory(order)}>History</button>
                       
                       {/* Changes Options Dropdown */}
                       <div style={{ position: 'relative' }}>

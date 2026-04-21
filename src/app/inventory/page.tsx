@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { inventoryItems as initialInventory } from '@/lib/mockData';
 import { InventoryItem } from '@/types';
 
@@ -92,50 +92,52 @@ export default function InventoryPage() {
     salePrice: ''
   });
 
-  const getStockStatus = (item: InventoryItem) => {
+  const getStockStatus = useCallback((item: InventoryItem) => {
     if (item.quantity === 0) return 'out-of-stock';
     if (item.quantity <= item.reorderLevel) return 'low-stock';
     return 'ok';
-  };
+  }, []);
 
-  const filteredItems = items
-    .filter(i => {
-      const matchesSearch = i.name.toLowerCase().includes(searchTerm.toLowerCase());
-      const matchesCategory = categoryFilter === 'all' || i.category === categoryFilter;
-      
-      if (view === 'low-stock') {
-        return matchesSearch && matchesCategory && getStockStatus(i) !== 'ok';
-      }
-      return matchesSearch && matchesCategory;
-    })
-    .sort((a, b) => {
-      let comparison = 0;
-      if (sortBy === 'name') comparison = a.name.localeCompare(b.name);
-      else if (sortBy === 'quantity') comparison = a.quantity - b.quantity;
-      else if (sortBy === 'cost') comparison = a.costPerUnit - b.costPerUnit;
-      return sortOrder === 'asc' ? comparison : -comparison;
-    });
+  const filteredItems = useMemo(() => 
+    items
+      .filter(i => {
+        const matchesSearch = i.name.toLowerCase().includes(searchTerm.toLowerCase());
+        const matchesCategory = categoryFilter === 'all' || i.category === categoryFilter;
+        
+        if (view === 'low-stock') {
+          return matchesSearch && matchesCategory && getStockStatus(i) !== 'ok';
+        }
+        return matchesSearch && matchesCategory;
+      })
+      .sort((a, b) => {
+        let comparison = 0;
+        if (sortBy === 'name') comparison = a.name.localeCompare(b.name);
+        else if (sortBy === 'quantity') comparison = a.quantity - b.quantity;
+        else if (sortBy === 'cost') comparison = a.costPerUnit - b.costPerUnit;
+        return sortOrder === 'asc' ? comparison : -comparison;
+      }),
+  [items, searchTerm, categoryFilter, view, sortBy, sortOrder, getStockStatus]);
 
-  const lowStockItems = items.filter(i => getStockStatus(i) !== 'ok');
-  const totalValue = items.reduce((sum, i) => sum + (i.quantity * i.costPerUnit), 0);
-  const categoryValues = items.reduce((acc, i) => {
+  const lowStockItems = useMemo(() => items.filter(i => getStockStatus(i) !== 'ok'), [items, getStockStatus]);
+  const totalValue = useMemo(() => items.reduce((sum, i) => sum + (i.quantity * i.costPerUnit), 0), [items]);
+  const categoryValues = useMemo(() => items.reduce((acc, i) => {
     acc[i.category] = (acc[i.category] || 0) + (i.quantity * i.costPerUnit);
     return acc;
-  }, {} as Record<string, number>);
+  }, {} as Record<string, number>), [items]);
 
-  const usageHistory = [
+  const usageHistory = useMemo(() => [
     { date: '2024-04-20', action: 'Used', quantity: 2, notes: 'Daily prep' },
     { date: '2024-04-19', action: 'Restocked', quantity: 10, notes: 'Weekly delivery' },
     { date: '2024-04-18', action: 'Used', quantity: 5, notes: 'Weekend rush' },
-  ];
+  ], []);
 
-  const openAddModal = () => {
+  const openAddModal = useCallback(() => {
     setEditingItem(null);
     setFormData({ name: '', category: 'Ingredients', quantity: '', unit: 'pieces', reorderLevel: '', costPerUnit: '', salePrice: '' });
     setShowModal(true);
-  };
+  }, []);
 
-  const openEditModal = (item: InventoryItem) => {
+  const openEditModal = useCallback((item: InventoryItem) => {
     setEditingItem(item);
     setFormData({
       name: item.name,
@@ -147,18 +149,18 @@ export default function InventoryPage() {
       salePrice: item.salePrice?.toString() || ''
     });
     setShowModal(true);
-  };
+  }, []);
 
-  const openHistoryModal = (item: InventoryItem) => {
+  const openHistoryModal = useCallback((item: InventoryItem) => {
     setSelectedItem(item);
     setShowHistoryModal(true);
-  };
+  }, []);
 
-  const saveItem = () => {
+  const saveItem = useCallback(() => {
     if (!formData.name || !formData.quantity) return;
     
     if (editingItem) {
-      setItems(items.map(i => i.id === editingItem.id ? {
+      setItems(prevItems => prevItems.map(i => i.id === editingItem.id ? {
         ...i,
         name: formData.name,
         category: formData.category,
@@ -169,53 +171,55 @@ export default function InventoryPage() {
         salePrice: formData.salePrice ? parseFloat(formData.salePrice) : undefined
       } : i));
     } else {
-      const newItem: InventoryItem = {
-        id: String(items.length + 1),
-        name: formData.name,
-        category: formData.category,
-        quantity: parseFloat(formData.quantity),
-        unit: formData.unit,
-        reorderLevel: parseFloat(formData.reorderLevel) || 0,
-        costPerUnit: parseFloat(formData.costPerUnit) || 0,
-        salePrice: formData.salePrice ? parseFloat(formData.salePrice) : undefined
-      };
-      setItems([...items, newItem]);
+      setItems(prevItems => {
+        const newItem: InventoryItem = {
+          id: String(prevItems.length + 1),
+          name: formData.name,
+          category: formData.category,
+          quantity: parseFloat(formData.quantity),
+          unit: formData.unit,
+          reorderLevel: parseFloat(formData.reorderLevel) || 0,
+          costPerUnit: parseFloat(formData.costPerUnit) || 0,
+          salePrice: formData.salePrice ? parseFloat(formData.salePrice) : undefined
+        };
+        return [...prevItems, newItem];
+      });
     }
     setShowModal(false);
-  };
+  }, [formData, editingItem]);
 
-  const adjustQuantity = (itemId: string, adjustment: number) => {
-    setItems(items.map(i => i.id === itemId ? { ...i, quantity: Math.max(0, i.quantity + adjustment) } : i));
-  };
+  const adjustQuantity = useCallback((itemId: string, adjustment: number) => {
+    setItems(prevItems => prevItems.map(i => i.id === itemId ? { ...i, quantity: Math.max(0, i.quantity + adjustment) } : i));
+  }, []);
 
-  const deleteItem = (itemId: string) => {
+  const deleteItem = useCallback((itemId: string) => {
     if (confirm('Are you sure you want to delete this item?')) {
-      setItems(items.filter(i => i.id !== itemId));
+      setItems(prevItems => prevItems.filter(i => i.id !== itemId));
     }
-  };
+  }, []);
 
-  const toggleSelectItem = (itemId: string) => {
+  const toggleSelectItem = useCallback((itemId: string) => {
     setSelectedItems(prev => 
       prev.includes(itemId) ? prev.filter(id => id !== itemId) : [...prev, itemId]
     );
-  };
+  }, []);
 
-  const selectAllItems = () => {
+  const selectAllItems = useCallback(() => {
     if (selectedItems.length === filteredItems.length) {
       setSelectedItems([]);
     } else {
       setSelectedItems(filteredItems.map(i => i.id));
     }
-  };
+  }, [selectedItems.length, filteredItems]);
 
-  const deleteSelectedItems = () => {
+  const deleteSelectedItems = useCallback(() => {
     if (confirm(`Delete ${selectedItems.length} selected items?`)) {
-      setItems(items.filter(i => !selectedItems.includes(i.id)));
+      setItems(prevItems => prevItems.filter(i => !selectedItems.includes(i.id)));
       setSelectedItems([]);
     }
-  };
+  }, [selectedItems]);
 
-  const exportInventory = () => {
+  const exportInventory = useCallback(() => {
     const headers = ['Name', 'Category', 'Quantity', 'Unit', 'Reorder Level', 'Cost/Unit', 'Total Value'];
     const rows = items.map(i => [i.name, i.category, i.quantity, i.unit, i.reorderLevel, i.costPerUnit, i.quantity * i.costPerUnit]);
     const csv = [headers, ...rows].map(row => row.join(',')).join('\n');
@@ -226,10 +230,10 @@ export default function InventoryPage() {
     a.download = 'inventory_data.csv';
     a.click();
     URL.revokeObjectURL(url);
-  };
+  }, [items]);
 
   // Restock functions
-  const openRestockModal = () => {
+  const openRestockModal = useCallback(() => {
     const lowStock = items.filter(i => i.quantity <= i.reorderLevel).map(item => ({
       itemId: item.id,
       name: item.name,
@@ -240,23 +244,25 @@ export default function InventoryPage() {
     setRestockSupplier(suppliers[0]);
     setRestockNotes('Auto-generated restock order');
     setShowRestockModal(true);
-  };
+  }, [items, suppliers]);
 
-  const addRestockItem = () => {
-    setRestockItems([...restockItems, { itemId: '', name: '', quantity: 1, costPerUnit: 0 }]);
-  };
+  const addRestockItem = useCallback(() => {
+    setRestockItems(prev => [...prev, { itemId: '', name: '', quantity: 1, costPerUnit: 0 }]);
+  }, []);
 
-  const removeRestockItem = (index: number) => {
-    setRestockItems(restockItems.filter((_, i) => i !== index));
-  };
+  const removeRestockItem = useCallback((index: number) => {
+    setRestockItems(prev => prev.filter((_, i) => i !== index));
+  }, []);
 
-  const updateRestockItem = (index: number, field: string, value: string | number) => {
-    const updated = [...restockItems];
-    updated[index] = { ...updated[index], [field]: value };
-    setRestockItems(updated);
-  };
+  const updateRestockItem = useCallback((index: number, field: string, value: string | number) => {
+    setRestockItems(prev => {
+      const updated = [...prev];
+      updated[index] = { ...updated[index], [field]: value };
+      return updated;
+    });
+  }, []);
 
-  const submitRestockOrder = () => {
+  const submitRestockOrder = useCallback(() => {
     const validItems = restockItems.filter(i => i.itemId && i.quantity > 0);
     if (validItems.length === 0 || !restockSupplier) return;
     
@@ -272,31 +278,33 @@ export default function InventoryPage() {
     );
     setShowRestockModal(false);
     setView('orders');
-  };
+  }, [restockItems, restockSupplier, restockNotes]);
 
-  const restockTotal = restockItems.reduce((sum, item) => sum + (item.quantity * item.costPerUnit), 0);
+  const restockTotal = useMemo(() => restockItems.reduce((sum, item) => sum + (item.quantity * item.costPerUnit), 0), [restockItems]);
 
   // Purchase order functions
-  const createPurchaseOrder = (orderItems: { itemId: string; name: string; quantity: number; cost: number }[], supplier: string, notes: string) => {
-    const newOrder: PurchaseOrder = {
-      id: `PO-${String(purchaseOrders.length + 1).padStart(3, '0')}`,
-      items: orderItems,
-      total: orderItems.reduce((sum, item) => sum + item.cost, 0),
-      status: 'pending',
-      supplier,
-      createdAt: new Date().toISOString().split('T')[0],
-      notes
-    };
-    setPurchaseOrders([...purchaseOrders, newOrder]);
-  };
+  const createPurchaseOrder = useCallback((orderItems: { itemId: string; name: string; quantity: number; cost: number }[], supplier: string, notes: string) => {
+    setPurchaseOrders(prevOrders => {
+      const newOrder: PurchaseOrder = {
+        id: `PO-${String(prevOrders.length + 1).padStart(3, '0')}`,
+        items: orderItems,
+        total: orderItems.reduce((sum, item) => sum + item.cost, 0),
+        status: 'pending',
+        supplier,
+        createdAt: new Date().toISOString().split('T')[0],
+        notes
+      };
+      return [...prevOrders, newOrder];
+    });
+  }, []);
 
-  const updateOrderStatus = (orderId: string, status: PurchaseOrder['status']) => {
-    setPurchaseOrders(purchaseOrders.map(order => 
+  const updateOrderStatus = useCallback((orderId: string, status: PurchaseOrder['status']) => {
+    setPurchaseOrders(prevOrders => prevOrders.map(order => 
       order.id === orderId ? { ...order, status } : order
     ));
-  };
+  }, []);
 
-  const receiveOrder = (orderId: string) => {
+  const receiveOrder = useCallback((orderId: string) => {
     const order = purchaseOrders.find(o => o.id === orderId);
     if (!order) return;
     
@@ -307,43 +315,43 @@ export default function InventoryPage() {
       }
     });
     updateOrderStatus(orderId, 'received');
-  };
+  }, [purchaseOrders, items, adjustQuantity, updateOrderStatus]);
 
-  const cancelOrder = (orderId: string) => {
+  const cancelOrder = useCallback((orderId: string) => {
     if (confirm('Are you sure you want to cancel this order?')) {
       updateOrderStatus(orderId, 'cancelled');
     }
-  };
+  }, [updateOrderStatus]);
 
-  const deleteOrder = (orderId: string) => {
+  const deleteOrder = useCallback((orderId: string) => {
     if (confirm('Are you sure you want to delete this order?')) {
-      setPurchaseOrders(purchaseOrders.filter(o => o.id !== orderId));
+      setPurchaseOrders(prevOrders => prevOrders.filter(o => o.id !== orderId));
     }
-  };
+  }, []);
 
-  const getOrdersByStatus = (status: PurchaseOrder['status']) => {
+  const getOrdersByStatus = useCallback((status: PurchaseOrder['status']) => {
     return purchaseOrders.filter(o => o.status === status);
-  };
+  }, [purchaseOrders]);
 
-  const pendingTotal = getOrdersByStatus('pending').reduce((sum, o) => sum + o.total, 0);
-  const orderedTotal = getOrdersByStatus('ordered').reduce((sum, o) => sum + o.total, 0);
+  const pendingTotal = useMemo(() => getOrdersByStatus('pending').reduce((sum, o) => sum + o.total, 0), [getOrdersByStatus]);
+  const orderedTotal = useMemo(() => getOrdersByStatus('ordered').reduce((sum, o) => sum + o.total, 0), [getOrdersByStatus]);
 
   // Stock movement functions
-  const getFilteredMovements = () => {
+  const getFilteredMovements = useCallback(() => {
     return stockMovements.filter(m => {
       const matchesType = movementFilter === 'all' || m.type === movementFilter;
       const matchesItem = movementItemFilter === 'all' || m.itemId === movementItemFilter;
       const matchesDate = !movementDateFilter || m.date === movementDateFilter;
       return matchesType && matchesItem && matchesDate;
     }).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  };
+  }, [stockMovements, movementFilter, movementItemFilter, movementDateFilter]);
 
-  const openMovementModal = () => {
+  const openMovementModal = useCallback(() => {
     setMovementForm({ itemId: '', type: 'received', quantity: '', notes: '', reference: '' });
     setShowMovementModal(true);
-  };
+  }, []);
 
-  const saveMovement = () => {
+  const saveMovement = useCallback(() => {
     const item = items.find(i => i.id === movementForm.itemId);
     if (!item || !movementForm.quantity || parseInt(movementForm.quantity) === 0) return;
 
@@ -358,25 +366,27 @@ export default function InventoryPage() {
     const previousQty = item.quantity;
     const newQty = Math.max(0, previousQty + qtyChange);
 
-    const newMovement: StockMovement = {
-      id: `SM-${String(stockMovements.length + 1).padStart(3, '0')}`,
-      itemId: item.id,
-      itemName: item.name,
-      type: movementForm.type,
-      quantity: qtyChange,
-      previousQty,
-      newQty,
-      date: new Date().toISOString().split('T')[0],
-      notes: movementForm.notes,
-      reference: movementForm.reference || undefined
-    };
-
-    setStockMovements([...stockMovements, newMovement]);
+    setStockMovements(prevMovements => {
+      const newMovement: StockMovement = {
+        id: `SM-${String(prevMovements.length + 1).padStart(3, '0')}`,
+        itemId: item.id,
+        itemName: item.name,
+        type: movementForm.type,
+        quantity: qtyChange,
+        previousQty,
+        newQty,
+        date: new Date().toISOString().split('T')[0],
+        notes: movementForm.notes,
+        reference: movementForm.reference || undefined
+      };
+      return [...prevMovements, newMovement];
+    });
+    
     adjustQuantity(item.id, qtyChange);
     setShowMovementModal(false);
-  };
+  }, [items, movementForm, adjustQuantity]);
 
-  const getMovementTypeColor = (type: StockMovement['type']) => {
+  const getMovementTypeColor = useCallback((type: StockMovement['type']) => {
     switch (type) {
       case 'received': return 'badge-available';
       case 'used': return 'badge-in_progress';
@@ -385,7 +395,7 @@ export default function InventoryPage() {
       case 'transfer': return 'badge-warning';
       default: return '';
     }
-  };
+  }, []);
 
   return (
     <>
@@ -397,9 +407,9 @@ export default function InventoryPage() {
               {lowStockItems.length} items low on stock
             </span>
           )}
-          <button className="btn btn-primary" onClick={() => { setEditingItem(null); setShowModal(true); }}>
-            + Add Item
-          </button>
+           <button className="btn btn-primary" onClick={openAddModal}>
+             + Add Item
+           </button>
         </div>
       </div>
 

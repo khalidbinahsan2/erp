@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { orders as initialOrders, tables, menuItems } from '@/lib/mockData';
 import { Order, OrderItem } from '@/types';
 
@@ -44,108 +44,124 @@ export default function OrdersPage() {
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card' | 'online'>('cash');
   const [tipAmount, setTipAmount] = useState('');
 
-  const filteredOrders = filter === 'all' 
-    ? orders 
-    : orders.filter(o => o.status === filter);
+  const filteredOrders = useMemo(() => {
+    return filter === 'all' 
+      ? orders 
+      : orders.filter(o => o.status === filter);
+  }, [orders, filter]);
 
-  const addItemToOrder = (menuItem: typeof menuItems[0]) => {
-    const existing = orderItems.find(i => i.menuItemId === menuItem.id);
-    if (existing) {
-      setOrderItems(orderItems.map(i => 
-        i.menuItemId === menuItem.id 
-          ? { ...i, quantity: i.quantity + 1 }
-          : i
-      ));
-    } else {
-      setOrderItems([...orderItems, {
-        menuItemId: menuItem.id,
-        name: menuItem.name,
-        quantity: 1,
-        price: menuItem.price
-      }]);
-    }
-  };
+  const orderTotal = useMemo(() => {
+    return orderItems.reduce((sum, i) => sum + (i.price * i.quantity), 0);
+  }, [orderItems]);
 
-  const removeItem = (menuItemId: string) => {
-    const existing = orderItems.find(i => i.menuItemId === menuItemId);
-    if (existing && existing.quantity > 1) {
-      setOrderItems(orderItems.map(i =>
-        i.menuItemId === menuItemId
-          ? { ...i, quantity: i.quantity - 1 }
-          : i
-      ));
-    } else {
-      setOrderItems(orderItems.filter(i => i.menuItemId !== menuItemId));
-    }
-  };
+  const addItemToOrder = useCallback((menuItem: typeof menuItems[0]) => {
+    setOrderItems(prevOrderItems => {
+      const existing = prevOrderItems.find(i => i.menuItemId === menuItem.id);
+      if (existing) {
+        return prevOrderItems.map(i => 
+          i.menuItemId === menuItem.id 
+            ? { ...i, quantity: i.quantity + 1 }
+            : i
+        );
+      } else {
+        return [...prevOrderItems, {
+          menuItemId: menuItem.id,
+          name: menuItem.name,
+          quantity: 1,
+          price: menuItem.price
+        }];
+      }
+    });
+  }, []);
 
-  const orderTotal = orderItems.reduce((sum, i) => sum + (i.price * i.quantity), 0);
+  const removeItem = useCallback((menuItemId: string) => {
+    setOrderItems(prevOrderItems => {
+      const existing = prevOrderItems.find(i => i.menuItemId === menuItemId);
+      if (existing && existing.quantity > 1) {
+        return prevOrderItems.map(i =>
+          i.menuItemId === menuItemId
+            ? { ...i, quantity: i.quantity - 1 }
+            : i
+        );
+      } else {
+        return prevOrderItems.filter(i => i.menuItemId !== menuItemId);
+      }
+    });
+  }, []);
 
-  const createOrder = () => {
+  const createOrder = useCallback(() => {
     if (!selectedTable || orderItems.length === 0) return;
     const table = tables.find(t => t.id === selectedTable);
     const customer = selectedCustomer ? mockCustomers.find(c => c.id === selectedCustomer) : null;
-    const newOrder: Order = {
-      id: `ORD-${String(orders.length + 1).padStart(3, '0')}`,
-      tableId: selectedTable,
-      tableNumber: table?.number || 0,
-      items: orderItems,
-      total: orderTotal,
-      status: 'pending',
-      createdAt: new Date(),
-      specialInstructions: instructions,
-      customerId: customer?.id,
-      customerName: customer?.name,
-      paymentStatus: 'unpaid'
-    };
-    setOrders([newOrder, ...orders]);
+    
+    setOrders(prevOrders => {
+      const newOrder: Order = {
+        id: `ORD-${String(prevOrders.length + 1).padStart(3, '0')}`,
+        tableId: selectedTable,
+        tableNumber: table?.number || 0,
+        items: orderItems,
+        total: orderTotal,
+        status: 'pending',
+        createdAt: new Date(),
+        specialInstructions: instructions,
+        customerId: customer?.id,
+        customerName: customer?.name,
+        paymentStatus: 'unpaid'
+      };
+      return [newOrder, ...prevOrders];
+    });
+    
     setShowModal(false);
     setSelectedTable('');
     setSelectedCustomer('');
     setOrderItems([]);
     setInstructions('');
-  };
+  }, [selectedTable, selectedCustomer, orderItems, orderTotal, instructions]);
 
-  const updateStatus = (orderId: string, newStatus: Order['status']) => {
-    setOrders(orders.map(o => o.id === orderId ? { ...o, status: newStatus } : o));
-  };
+  const updateStatus = useCallback((orderId: string, newStatus: Order['status']) => {
+    setOrders(prevOrders => 
+      prevOrders.map(o => o.id === orderId ? { ...o, status: newStatus } : o)
+    );
+  }, []);
 
-  const openPaymentModal = (order: Order) => {
+  const openPaymentModal = useCallback((order: Order) => {
     setSelectedOrder(order);
     setPaymentAmount(order.total.toString());
     setTipAmount('');
     setPaymentMethod('cash');
     setShowPaymentModal(true);
-  };
+  }, []);
 
-  const processPayment = () => {
+  const processPayment = useCallback(() => {
     if (!selectedOrder || !paymentAmount) return;
     
     const amount = parseFloat(paymentAmount);
     const tip = tipAmount ? parseFloat(tipAmount) : 0;
     const change = paymentMethod === 'cash' ? Math.max(0, amount - selectedOrder.total - tip) : 0;
     
-    setOrders(orders.map(o => o.id === selectedOrder.id ? {
-      ...o,
-      status: 'completed',
-      paymentStatus: 'paid' as const,
-      paymentMethod,
-      paidAmount: amount,
-      changeGiven: change,
-      tip: tip > 0 ? tip : undefined,
-      paymentDate: new Date().toISOString()
-    } : o));
+    setOrders(prevOrders => 
+      prevOrders.map(o => o.id === selectedOrder.id ? {
+        ...o,
+        status: 'completed',
+        paymentStatus: 'paid' as const,
+        paymentMethod,
+        paidAmount: amount,
+        changeGiven: change,
+        tip: tip > 0 ? tip : undefined,
+        paymentDate: new Date().toISOString()
+      } : o)
+    );
     
     setShowPaymentModal(false);
-  };
+  }, [selectedOrder, paymentAmount, tipAmount, paymentMethod]);
 
-  const getPaymentStatusBadge = (status?: string) => {
+  const getPaymentStatusBadge = useCallback((status?: string) => {
     switch (status) {
       case 'paid': return 'badge-available';
       case 'partial': return 'badge-pending';
       default: return 'badge-cancelled';
     }
-  };
+  }, []);
 
   return (
     <>

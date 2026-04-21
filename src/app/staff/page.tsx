@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { staff as initialStaff, roles, orders } from '@/lib/mockData';
@@ -29,13 +29,13 @@ export default function StaffPage() {
 
   const [scheduleForm, setScheduleForm] = useState<{ day: string; startTime: string; endTime: string }[]>([]);
 
-  const openAddModal = () => {
+  const openAddModal = useCallback(() => {
     setEditingStaff(null);
     setFormData({ name: '', role: 'Server', phone: '', email: '', status: 'active', hourlyRate: '', overtimeHours: '' });
     setShowModal(true);
-  };
+  }, []);
 
-  const openEditModal = (member: Staff) => {
+  const openEditModal = useCallback((member: Staff) => {
     setEditingStaff(member);
     setFormData({
       name: member.name,
@@ -47,17 +47,17 @@ export default function StaffPage() {
       overtimeHours: member.salary?.overtimeHours.toString() || ''
     });
     setShowModal(true);
-  };
+  }, []);
 
-  const openScheduleModal = (member: Staff) => {
+  const openScheduleModal = useCallback((member: Staff) => {
     setEditingStaff(member);
     setScheduleForm(member.schedule.length > 0 ? member.schedule : [
       { day: 'Monday', startTime: '09:00', endTime: '17:00' }
     ]);
     setShowScheduleModal(true);
-  };
+  }, []);
 
-  const saveStaff = () => {
+  const saveStaff = useCallback(() => {
     if (!formData.name) return;
     
     const hourlyRate = parseFloat(formData.hourlyRate) || 0;
@@ -66,7 +66,7 @@ export default function StaffPage() {
     const monthlySalary = Math.round(hourlyRate * hoursWorked + (overtimeHours * hourlyRate * 1.5));
     
     if (editingStaff) {
-      setStaff(staff.map(s => s.id === editingStaff.id ? {
+      setStaff(prevStaff => prevStaff.map(s => s.id === editingStaff.id ? {
         ...s,
         name: formData.name,
         role: formData.role,
@@ -76,52 +76,68 @@ export default function StaffPage() {
         salary: hourlyRate > 0 ? { hourlyRate, hoursWorked, overtimeHours, monthlySalary } : undefined
       } : s));
     } else {
-      const newStaff: Staff = {
-        id: String(staff.length + 1),
-        name: formData.name,
-        role: formData.role,
-        phone: formData.phone,
-        email: formData.email,
-        status: formData.status,
-        schedule: [],
-        salary: hourlyRate > 0 ? { hourlyRate, hoursWorked, overtimeHours, monthlySalary } : undefined
-      };
-      setStaff([...staff, newStaff]);
+      setStaff(prevStaff => {
+        const newStaff: Staff = {
+          id: String(prevStaff.length + 1),
+          name: formData.name,
+          role: formData.role,
+          phone: formData.phone,
+          email: formData.email,
+          status: formData.status,
+          schedule: [],
+          salary: hourlyRate > 0 ? { hourlyRate, hoursWorked, overtimeHours, monthlySalary } : undefined
+        };
+        return [...prevStaff, newStaff];
+      });
     }
     setShowModal(false);
-  };
+  }, [editingStaff, formData]);
 
-  const saveSchedule = () => {
+  const saveSchedule = useCallback(() => {
     if (!editingStaff) return;
-    setStaff(staff.map(s => s.id === editingStaff.id ? { ...s, schedule: scheduleForm } : s));
+    setStaff(prevStaff => prevStaff.map(s => 
+      s.id === editingStaff.id ? { ...s, schedule: scheduleForm } : s
+    ));
     setShowScheduleModal(false);
-  };
+  }, [editingStaff, scheduleForm]);
 
-  const addScheduleDay = () => {
-    setScheduleForm([...scheduleForm, { day: 'Monday', startTime: '09:00', endTime: '17:00' }]);
-  };
+  const addScheduleDay = useCallback(() => {
+    setScheduleForm(prev => [...prev, { day: 'Monday', startTime: '09:00', endTime: '17:00' }]);
+  }, []);
 
-  const removeScheduleDay = (index: number) => {
-    setScheduleForm(scheduleForm.filter((_, i) => i !== index));
-  };
+  const removeScheduleDay = useCallback((index: number) => {
+    setScheduleForm(prev => prev.filter((_, i) => i !== index));
+  }, []);
 
-  const updateScheduleDay = (index: number, field: string, value: string) => {
-    const updated = [...scheduleForm];
-    updated[index] = { ...updated[index], [field]: value };
-    setScheduleForm(updated);
-  };
+  const updateScheduleDay = useCallback((index: number, field: string, value: string) => {
+    setScheduleForm(prev => {
+      const updated = [...prev];
+      updated[index] = { ...updated[index], [field]: value };
+      return updated;
+    });
+  }, []);
 
-  const toggleStatus = (staffId: string) => {
-    setStaff(staff.map(s => s.id === staffId ? { ...s, status: s.status === 'active' ? 'inactive' : 'active' } : s));
-  };
+  const toggleStatus = useCallback((staffId: string) => {
+    setStaff(prevStaff => prevStaff.map(s => 
+      s.id === staffId ? { ...s, status: s.status === 'active' ? 'inactive' : 'active' } : s
+    ));
+  }, []);
 
-  const deleteStaff = (staffId: string) => {
+  const deleteStaff = useCallback((staffId: string) => {
     if (confirm('Are you sure you want to remove this staff member?')) {
-      setStaff(staff.filter(s => s.id !== staffId));
+      setStaff(prevStaff => prevStaff.filter(s => s.id !== staffId));
     }
-  };
+  }, []);
 
-  const exportStaffData = () => {
+  const filteredStaff = useMemo(() => staff.filter(s => {
+    const matchesSearch = s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                          s.email.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesRole = roleFilter === 'all' || s.role === roleFilter;
+    const matchesStatus = statusFilter === 'all' || s.status === statusFilter;
+    return matchesSearch && matchesRole && matchesStatus;
+  }), [staff, searchTerm, roleFilter, statusFilter]);
+
+  const exportStaffData = useCallback(() => {
     const headers = ['Name', 'Role', 'Phone', 'Email', 'Status'];
     const rows = filteredStaff.map(s => [s.name, s.role, s.phone, s.email, s.status]);
     const csv = [headers, ...rows].map(row => row.join(',')).join('\n');
@@ -132,26 +148,18 @@ export default function StaffPage() {
     a.download = 'staff_data.csv';
     a.click();
     URL.revokeObjectURL(url);
-  };
+  }, [filteredStaff]);
 
-  const filteredStaff = staff.filter(s => {
-    const matchesSearch = s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                          s.email.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesRole = roleFilter === 'all' || s.role === roleFilter;
-    const matchesStatus = statusFilter === 'all' || s.status === statusFilter;
-    return matchesSearch && matchesRole && matchesStatus;
-  });
-
-  const getStaffPerformance = (memberId: string) => {
+  const getStaffPerformance = useCallback((memberId: string) => {
     const orderCount = 32;
     const revenue = 1245;
     const rating = 4.7;
     return { orderCount, revenue, rating };
-  };
+  }, []);
 
-  const activeStaff = staff.filter(s => s.status === 'active');
-  const totalSalaries = staff.reduce((sum, s) => sum + (s.salary?.monthlySalary || 0), 0);
-  const totalOvertime = staff.reduce((sum, s) => sum + (s.salary?.overtimeHours || 0), 0);
+  const activeStaff = useMemo(() => staff.filter(s => s.status === 'active'), [staff]);
+  const totalSalaries = useMemo(() => staff.reduce((sum, s) => sum + (s.salary?.monthlySalary || 0), 0), [staff]);
+  const totalOvertime = useMemo(() => staff.reduce((sum, s) => sum + (s.salary?.overtimeHours || 0), 0), [staff]);
 
   return (
     <>
