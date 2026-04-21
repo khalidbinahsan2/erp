@@ -854,39 +854,50 @@ export default function InventoryPage() {
 
       {/* History Modal */}
       <div className={`modal-overlay ${showHistoryModal ? 'active' : ''}`} onClick={() => setShowHistoryModal(false)}>
-        <div className="modal" onClick={e => e.stopPropagation()}>
-          <div className="modal-header">
-            <h2 className="modal-title">Usage History - {selectedItem?.name}</h2>
-            <button className="modal-close" onClick={() => setShowHistoryModal(false)}>×</button>
+        <div className="modal" onClick={e => e.stopPropagation()} style={{ backgroundColor: '#121212', border: 'none', width: '90%', maxWidth: '900px' }}>
+          <div className="modal-header" style={{ borderBottom: '1px solid #333', paddingBottom: '24px' }}>
+            <h2 className="modal-title" style={{ fontSize: '42px', fontWeight: '700' }}>Usage History - {selectedItem?.name}</h2>
+            <button className="modal-close" onClick={() => setShowHistoryModal(false)} style={{ width: '50px', height: '50px', fontSize: '28px' }}>×</button>
           </div>
-          <div className="modal-body">
+          <div className="modal-body" style={{ padding: '32px' }}>
             <table className="data-table">
               <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Action</th>
-                  <th>Quantity</th>
-                  <th>Notes</th>
+                <tr style={{ backgroundColor: '#222' }}>
+                  <th style={{ fontSize: '20px', color: '#888', fontWeight: '500', padding: '16px' }}>Date</th>
+                  <th style={{ fontSize: '20px', color: '#888', fontWeight: '500', padding: '16px' }}>Action</th>
+                  <th style={{ fontSize: '20px', color: '#888', fontWeight: '500', padding: '16px' }}>Quantity</th>
+                  <th style={{ fontSize: '20px', color: '#888', fontWeight: '500', padding: '16px' }}>Notes</th>
                 </tr>
               </thead>
               <tbody>
-                {usageHistory.map((entry, index) => (
-                  <tr key={index}>
-                    <td>{entry.date}</td>
-                    <td>
-                      <span className={`badge ${entry.action === 'Restocked' ? 'badge-available' : 'badge-in_progress'}`}>
-                        {entry.action}
+                {stockMovements
+                  .filter(m => selectedItem && m.itemId === selectedItem.id)
+                  .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+                  .map((movement, index) => (
+                  <tr key={index} style={{ borderBottom: '1px solid #333' }}>
+                    <td style={{ fontSize: '28px', padding: '24px 16px' }}>{movement.date}</td>
+                    <td style={{ padding: '24px 16px' }}>
+                      <span style={{ 
+                        padding: '8px 24px', 
+                        borderRadius: '24px', 
+                        display: 'inline-block',
+                        fontWeight: '500',
+                        fontSize: '24px',
+                        backgroundColor: movement.type === 'received' ? '#166534' : '#1e3a5f',
+                        color: movement.type === 'received' ? '#4ade80' : '#93c5fd'
+                      }}>
+                        {movement.type === 'received' ? 'Restocked' : movement.type === 'used' ? 'Used' : movement.type}
                       </span>
                     </td>
-                    <td className="mono">{entry.quantity}</td>
-                    <td>{entry.notes}</td>
+                    <td style={{ fontSize: '32px', fontWeight: '500', padding: '24px 16px' }} className="mono">{Math.abs(movement.quantity)}</td>
+                    <td style={{ fontSize: '24px', padding: '24px 16px' }}>{movement.notes || '-'}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-          <div className="modal-footer">
-            <button className="btn btn-secondary" onClick={() => setShowHistoryModal(false)}>Close</button>
+          <div className="modal-footer" style={{ borderTop: 'none', justifyContent: 'flex-end', padding: '24px' }}>
+            <button className="btn btn-secondary" style={{ padding: '16px 40px', fontSize: '24px' }} onClick={() => setShowHistoryModal(false)}>Close</button>
           </div>
         </div>
       </div>
