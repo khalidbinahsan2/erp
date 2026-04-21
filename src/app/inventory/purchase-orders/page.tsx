@@ -367,7 +367,7 @@ export default function PurchaseOrdersPage() {
                       {order.status === 'received' && (
                         <button className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '13px' }} onClick={() => setPurchaseOrders(purchaseOrders.map(o => o.id === order.id ? { ...o, status: 'used' } : o))}>Used</button>
                       )}
-                      <button className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '13px' }} onClick={() => { setSelectedOrder(order); setShowDetailModal(true); }}>View</button>
+                      <button className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '13px' }} onClick={() => { setSelectedOrder(order); setShowDetailModal(true); }}>History</button>
                       {order.status !== 'received' && order.status !== 'used' && (
                         <button className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '13px', borderColor: '#ef4444', color: '#ef4444' }} onClick={() => setPurchaseOrders(purchaseOrders.map(o => o.id === order.id ? { ...o, status: 'cancelled' } : o))}>Cancel</button>
                       )}
@@ -651,6 +651,64 @@ export default function PurchaseOrdersPage() {
           <div className="modal-footer">
             <button className="btn btn-secondary" onClick={() => setShowCreateModal(false)}>Cancel</button>
             <button className="btn btn-primary" onClick={createOrder} disabled={!newOrder.supplier || newOrder.items.length === 0}>Create Order</button>
+          </div>
+        </div>
+      </div>
+
+      {/* Purchase Order Detail / Item History Modal */}
+      <div className={`modal-overlay ${showDetailModal ? 'active' : ''}`} onClick={() => setShowDetailModal(false)}>
+        <div className="modal" style={{ backgroundColor: '#121212', border: 'none', width: '90%', maxWidth: '900px' }} onClick={e => e.stopPropagation()}>
+          <div className="modal-header" style={{ borderBottom: '1px solid #333', paddingBottom: '24px' }}>
+            <h2 className="modal-title" style={{ fontSize: '42px', fontWeight: '700' }}>Order History - {selectedOrder?.id}</h2>
+            <button className="modal-close" onClick={() => setShowDetailModal(false)} style={{ width: '50px', height: '50px', fontSize: '28px' }}>×</button>
+          </div>
+          <div className="modal-body" style={{ padding: '32px' }}>
+            {selectedOrder && (
+              <>
+                <div style={{ marginBottom: '24px' }}>
+                  <div style={{ fontSize: '16px', color: '#888', marginBottom: '8px' }}>Supplier: {selectedOrder.supplier}</div>
+                  <div style={{ fontSize: '16px', color: '#888', marginBottom: '8px' }}>Date: {selectedOrder.createdAt}</div>
+                  <div style={{ fontSize: '16px', color: '#888', marginBottom: '24px' }}>Status: {selectedOrder.status}</div>
+                  
+                  <h3 style={{ fontSize: '24px', fontWeight: '600', marginBottom: '16px' }}>Items in this order</h3>
+
+                  <table className="data-table">
+                    <thead>
+                      <tr style={{ backgroundColor: '#222' }}>
+                        <th style={{ fontSize: '18px', color: '#888', fontWeight: '500', padding: '12px' }}>Item</th>
+                        <th style={{ fontSize: '18px', color: '#888', fontWeight: '500', padding: '12px' }}>Quantity</th>
+                        <th style={{ fontSize: '18px', color: '#888', fontWeight: '500', padding: '12px' }}>Unit Cost</th>
+                        <th style={{ fontSize: '18px', color: '#888', fontWeight: '500', padding: '12px' }}>Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {selectedOrder.items.map((item, idx) => (
+                        <tr key={idx} style={{ borderBottom: '1px solid #333' }}>
+                          <td style={{ fontSize: '20px', padding: '16px 12px' }}>{item.name}</td>
+                          <td style={{ fontSize: '20px', padding: '16px 12px' }}>{item.quantity}</td>
+                          <td style={{ fontSize: '20px', padding: '16px 12px' }}>{formatCurrency(item.cost)}</td>
+                          <td style={{ fontSize: '20px', padding: '16px 12px', fontWeight: '600' }}>{formatCurrency(item.quantity * item.cost)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  
+                  <div style={{ textAlign: 'right', marginTop: '16px', fontSize: '24px', fontWeight: '600' }}>
+                    Total: {formatCurrency(selectedOrder.total)}
+                  </div>
+                </div>
+
+                {selectedOrder.notes && (
+                  <div style={{ marginTop: '24px', padding: '16px', backgroundColor: '#1a1a1a', borderRadius: '8px' }}>
+                    <div style={{ fontSize: '14px', color: '#888', marginBottom: '8px' }}>Notes</div>
+                    <div style={{ fontSize: '18px' }}>{selectedOrder.notes}</div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+          <div className="modal-footer" style={{ borderTop: 'none', justifyContent: 'flex-end', padding: '24px' }}>
+            <button className="btn btn-secondary" style={{ padding: '16px 40px', fontSize: '24px' }} onClick={() => setShowDetailModal(false)}>Close</button>
           </div>
         </div>
       </div>
