@@ -95,6 +95,49 @@ export default function PurchaseOrdersPage() {
 
   const suppliers = ['Fresh Foods Co', 'Ocean Catch', 'Prime Meats', 'Green Valley Farms', 'Beverage Distributors', 'Asian Supplies Co', 'Italian Imports', 'Fresh Farms', 'Restaurant Supply', 'Herb Garden'];
 
+  const [newOrder, setNewOrder] = useState({
+    supplier: '',
+    items: [] as { itemId: string; name: string; quantity: number; cost: number }[],
+    notes: ''
+  });
+  const [selectedItem, setSelectedItem] = useState('');
+  const [itemQty, setItemQty] = useState(1);
+  const [itemCost, setItemCost] = useState(0);
+
+  const addItemToOrder = () => {
+    if (!selectedItem || itemQty <= 0) return;
+    const invItem = items.find(i => i.id === selectedItem);
+    if (!invItem) return;
+    setNewOrder({
+      ...newOrder,
+      items: [...newOrder.items, { itemId: selectedItem, name: invItem.name, quantity: itemQty, cost: itemCost || invItem.costPerUnit }]
+    });
+    setSelectedItem('');
+    setItemQty(1);
+    setItemCost(0);
+  };
+
+  const removeItem = (idx: number) => {
+    setNewOrder({ ...newOrder, items: newOrder.items.filter((_, i) => i !== idx) });
+  };
+
+  const createOrder = () => {
+    if (!newOrder.supplier || newOrder.items.length === 0) return;
+    const total = newOrder.items.reduce((sum, item) => sum + item.quantity * item.cost, 0);
+    const order: PurchaseOrder = {
+      id: `PO-${String(purchaseOrders.length + 1).padStart(3, '0')}`,
+      items: newOrder.items,
+      total,
+      status: 'pending',
+      supplier: newOrder.supplier,
+      createdAt: new Date().toISOString().split('T')[0],
+      notes: newOrder.notes
+    };
+    setPurchaseOrders([order, ...purchaseOrders]);
+    setShowCreateModal(false);
+    setNewOrder({ supplier: '', items: [], notes: '' });
+  };
+
   // Calculate monthly purchases
   const getMonthlyPurchases = (year: number): MonthlyPurchase[] => {
     const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -546,6 +589,71 @@ export default function PurchaseOrdersPage() {
           </div>
         </>
       )}
+
+      {/* Create Order Modal */}
+      <div className={`modal-overlay ${showCreateModal ? 'active' : ''}`} onClick={() => setShowCreateModal(false)}>
+        <div className="modal" style={{ maxWidth: '600px' }} onClick={e => e.stopPropagation()}>
+          <div className="modal-header">
+            <h2 className="modal-title">Create Purchase Order</h2>
+            <button className="modal-close" onClick={() => setShowCreateModal(false)}>×</button>
+          </div>
+          <div className="modal-body">
+            <div className="form-group">
+              <label className="form-label">Supplier</label>
+              <select className="form-select" value={newOrder.supplier} onChange={e => setNewOrder({ ...newOrder, supplier: e.target.value })}>
+                <option value="">Select Supplier</option>
+                {suppliers.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Add Items</label>
+              <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
+                <select className="form-select" style={{ flex: 2 }} value={selectedItem} onChange={e => setSelectedItem(e.target.value)}>
+                  <option value="">Select Item</option>
+                  {items.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
+                </select>
+                <input className="form-input" type="number" min="1" style={{ flex: 1 }} placeholder="Qty" value={itemQty} onChange={e => setItemQty(parseInt(e.target.value) || 1)} />
+                <input className="form-input" type="number" step="0.01" style={{ flex: 1 }} placeholder="Cost" value={itemCost} onChange={e => setItemCost(parseFloat(e.target.value) || 0)} />
+                <button className="btn btn-secondary" onClick={addItemToOrder}>Add</button>
+              </div>
+
+              {newOrder.items.length > 0 && (
+                <div style={{ marginTop: '12px' }}>
+                  <table className="data-table">
+                    <thead>
+                      <tr><th>Item</th><th>Qty</th><th>Cost</th><th>Total</th><th></th></tr>
+                    </thead>
+                    <tbody>
+                      {newOrder.items.map((item, idx) => (
+                        <tr key={idx}>
+                          <td>{item.name}</td>
+                          <td className="mono">{item.quantity}</td>
+                          <td className="mono">{formatCurrency(item.cost)}</td>
+                          <td className="mono" style={{ fontWeight: '600' }}>{formatCurrency(item.quantity * item.cost)}</td>
+                          <td><button className="action-btn" style={{ color: 'var(--danger)' }} onClick={() => removeItem(idx)}>×</button></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <div style={{ textAlign: 'right', marginTop: '8px', fontWeight: '600' }}>
+                    Total: {formatCurrency(newOrder.items.reduce((sum, item) => sum + item.quantity * item.cost, 0))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Notes</label>
+              <textarea className="form-input" rows={2} value={newOrder.notes} onChange={e => setNewOrder({ ...newOrder, notes: e.target.value })} placeholder="Optional notes..." />
+            </div>
+          </div>
+          <div className="modal-footer">
+            <button className="btn btn-secondary" onClick={() => setShowCreateModal(false)}>Cancel</button>
+            <button className="btn btn-primary" onClick={createOrder} disabled={!newOrder.supplier || newOrder.items.length === 0}>Create Order</button>
+          </div>
+        </div>
+      </div>
     </>
   );
 }
