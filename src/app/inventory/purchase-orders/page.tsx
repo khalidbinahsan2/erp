@@ -1048,6 +1048,54 @@ export default function PurchaseOrdersPage() {
           <div className="modal-body" style={{ padding: '32px' }}>
             {selectedOrder && (
               <>
+                {/* Order Details Grid */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '20px', marginBottom: '32px' }}>
+                  <div style={{ padding: '16px', backgroundColor: '#1a1a1a', borderRadius: '8px' }}>
+                    <div style={{ fontSize: '14px', color: '#888', marginBottom: '6px' }}>Expected Delivery</div>
+                    <div style={{ fontSize: '18px', fontWeight: '600' }}>{selectedOrder.deliveryDate || 'Not specified'}</div>
+                  </div>
+                  <div style={{ padding: '16px', backgroundColor: '#1a1a1a', borderRadius: '8px' }}>
+                    <div style={{ fontSize: '14px', color: '#888', marginBottom: '6px' }}>Priority</div>
+                    <div style={{ fontSize: '18px', fontWeight: '600', textTransform: 'capitalize' }}>{selectedOrder.priority || 'normal'}</div>
+                  </div>
+                  <div style={{ padding: '16px', backgroundColor: '#1a1a1a', borderRadius: '8px' }}>
+                    <div style={{ fontSize: '14px', color: '#888', marginBottom: '6px' }}>Reference Number</div>
+                    <div style={{ fontSize: '18px', fontWeight: '600', fontFamily: 'monospace' }}>{selectedOrder.reference || '-'}</div>
+                  </div>
+                  <div style={{ padding: '16px', backgroundColor: '#1a1a1a', borderRadius: '8px' }}>
+                    <div style={{ fontSize: '14px', color: '#888', marginBottom: '6px' }}>Attachments</div>
+                    <div style={{ fontSize: '18px', fontWeight: '600' }}>📎 No attachments</div>
+                  </div>
+                </div>
+
+                {/* Pricing Breakdown */}
+                <div style={{ padding: '20px', backgroundColor: '#1a1a1a', borderRadius: '8px', marginBottom: '32px' }}>
+                  <h3 style={{ fontSize: '20px', fontWeight: '600', marginBottom: '16px' }}>Pricing Breakdown</h3>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '16px' }}>
+                      <span>Subtotal</span>
+                      <span style={{ fontWeight: '500' }}>{formatCurrency(selectedOrder.subtotal || selectedOrder.total)}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '16px' }}>
+                      <span>Shipping Cost</span>
+                      <span style={{ fontWeight: '500' }}>{formatCurrency(selectedOrder.shippingCost || 0)}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '16px' }}>
+                      <span>Tax ({selectedOrder.taxRate || 0}%)</span>
+                      <span style={{ fontWeight: '500' }}>{formatCurrency(selectedOrder.taxAmount || 0)}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '16px' }}>
+                      <span>Discount ({selectedOrder.discount || 0}%)</span>
+                      <span style={{ fontWeight: '500', color: '#ef4444' }}>- {formatCurrency(selectedOrder.discountAmount || 0)}</span>
+                    </div>
+                    <div style={{ height: '1px', backgroundColor: '#333', margin: '8px 0' }}></div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '20px', fontWeight: '700' }}>
+                      <span>Order Total</span>
+                      <span>{formatCurrency(selectedOrder.total)}</span>
+                    </div>
+                  </div>
+                </div>
+
                 <h3 style={{ fontSize: '24px', fontWeight: '600', marginBottom: '24px' }}>Order Timeline</h3>
 
                 <table className="data-table" style={{ marginBottom: '32px' }}>
