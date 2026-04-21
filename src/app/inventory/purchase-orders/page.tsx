@@ -99,6 +99,50 @@ export default function PurchaseOrdersPage() {
   const [selectedOrder, setSelectedOrder] = useState<PurchaseOrder | null>(null);
   const [selectedYear, setSelectedYear] = useState(2026);
   const [selectedMonth, setSelectedMonth] = useState(3);
+  const [showQuickRestockModal, setShowQuickRestockModal] = useState(false);
+  const [quickRestockItems, setQuickRestockItems] = useState<{ itemId: string; quantity: number }[]>([]);
+
+  const addQuickRestockItem = (itemId: string) => {
+    if (!quickRestockItems.find(i => i.itemId === itemId)) {
+      setQuickRestockItems([...quickRestockItems, { itemId, quantity: 10 }]);
+    }
+  };
+
+  const updateQuickRestockQty = (itemId: string, qty: number) => {
+    setQuickRestockItems(quickRestockItems.map(i => i.itemId === itemId ? { ...i, quantity: Math.max(1, qty) } : i));
+  };
+
+  const removeQuickRestockItem = (itemId: string) => {
+    setQuickRestockItems(quickRestockItems.filter(i => i.itemId !== itemId));
+  };
+
+  const submitQuickRestock = () => {
+    if (quickRestockItems.length === 0) return;
+    const orderItems = quickRestockItems.map(ri => {
+      const invItem = items.find(i => i.id === ri.itemId);
+      return { itemId: ri.itemId, name: invItem?.name || '', quantity: ri.quantity, cost: invItem?.costPerUnit || 0 };
+    });
+    const total = orderItems.reduce((sum, i) => sum + i.quantity * i.cost, 0);
+    const today = new Date().toISOString().split('T')[0];
+    
+    const order: PurchaseOrder = {
+      id: `PO-${String(purchaseOrders.length + 1).padStart(3, '0')}`,
+      items: orderItems,
+      total,
+      status: 'ordered',
+      supplier: 'Quick Restock',
+      createdAt: today,
+      notes: 'Quick restock order',
+      timeline: [
+        { date: today, status: 'pending', notes: 'Created via quick restock' },
+        { date: today, status: 'ordered', notes: 'Auto-ordered from quick restock' }
+      ]
+    };
+    
+    setPurchaseOrders([order, ...purchaseOrders]);
+    setQuickRestockItems([]);
+    setShowQuickRestockModal(false);
+  };
 
   const suppliers = ['Fresh Foods Co', 'Ocean Catch', 'Prime Meats', 'Green Valley Farms', 'Beverage Distributors', 'Asian Supplies Co', 'Italian Imports', 'Fresh Farms', 'Restaurant Supply', 'Herb Garden'];
 
@@ -273,9 +317,14 @@ export default function PurchaseOrdersPage() {
     <>
       <div className="page-header">
         <h1 className="page-title">Purchase Orders & Analytics</h1>
-        <button className="btn btn-primary" onClick={() => setShowCreateModal(true)}>
-          + Create Order
-        </button>
+        <div style={{ display: 'flex', gap: '12px' }}>
+          <button className="btn btn-secondary" onClick={() => setShowQuickRestockModal(true)}>
+            ⚡ Quick Restock
+          </button>
+          <button className="btn btn-primary" onClick={() => setShowCreateModal(true)}>
+            + Create Order
+          </button>
+        </div>
       </div>
 
       <div className="filter-bar" style={{ marginBottom: '24px' }}>
@@ -789,6 +838,84 @@ export default function PurchaseOrdersPage() {
           </div>
           <div className="modal-footer" style={{ borderTop: 'none', justifyContent: 'flex-end', padding: '24px' }}>
             <button className="btn btn-secondary" style={{ padding: '16px 40px', fontSize: '24px' }} onClick={() => setShowDetailModal(false)}>Close</button>
+          </div>
+        </div>
+      </div>
+
+      {/* Quick Restock Modal */}
+      <div className={`modal-overlay ${showQuickRestockModal ? 'active' : ''}`} onClick={() => setShowQuickRestockModal(false)}>
+        <div className="modal" style={{ maxWidth: '650px' }} onClick={e => e.stopPropagation()}>
+          <div className="modal-header">
+            <h2 className="modal-title">⚡ Quick Restock</h2>
+            <button className="modal-close" onClick={() => setShowQuickRestockModal(false)}>×</button>
+          </div>
+          <div className="modal-body">
+            <div style={{ marginBottom: '16px' }}>
+              <div className="form-label">Select items to restock:</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '8px', maxHeight: '300px', overflowY: 'auto', marginTop: '8px' }}>
+                {items.map(item => (
+                  <div
+                    key={item.id}
+                    onClick={() => addQuickRestockItem(item.id)}
+                    style={{ 
+                      padding: '12px', 
+                      border: '1px solid var(--border)', 
+                      borderRadius: '8px', 
+                      cursor: 'pointer',
+                      backgroundColor: quickRestockItems.find(i => i.itemId === item.id) ? 'var(--primary)' : 'transparent',
+                      color: quickRestockItems.find(i => i.itemId === item.id) ? 'white' : 'var(--text)',
+                    }}
+                  >
+                    <div style={{ fontWeight: '500' }}>{item.name}</div>
+                    <div style={{ fontSize: '12px', opacity: 0.7 }}>Stock: {item.quantity} {item.unit}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            
+            {quickRestockItems.length > 0 && (
+              <div>
+                <div className="form-label">Selected items:</div>
+                <table className="data-table" style={{ marginTop: '8px' }}>
+                  <thead>
+                    <tr>
+                      <th>Item</th>
+                      <th>Quantity</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {quickRestockItems.map(ri => {
+                      const item = items.find(i => i.id === ri.itemId);
+                      return (
+                        <tr key={ri.itemId}>
+                          <td>{item?.name}</td>
+                          <td>
+                            <input
+                              type="number"
+                              min="1"
+                              value={ri.quantity}
+                              onChange={e => updateQuickRestockQty(ri.itemId, parseInt(e.target.value))}
+                              style={{ width: '80px' }}
+                              className="form-input"
+                            />
+                          </td>
+                          <td>
+                            <button className="action-btn" style={{ color: 'var(--danger)' }} onClick={() => removeQuickRestockItem(ri.itemId)}>×</button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+          <div className="modal-footer">
+            <button className="btn btn-secondary" onClick={() => setShowQuickRestockModal(false)}>Cancel</button>
+            <button className="btn btn-primary" onClick={submitQuickRestock} disabled={quickRestockItems.length === 0}>
+              Restock {quickRestockItems.length} Items
+            </button>
           </div>
         </div>
       </div>
