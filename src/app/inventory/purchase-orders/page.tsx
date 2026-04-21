@@ -14,11 +14,20 @@ interface OrderTimelineEvent {
   notes?: string;
 }
 
+interface PurchaseOrderItem {
+  itemId: string;
+  name: string;
+  quantity: number;
+  cost: number;
+  returned?: number;
+  returnReason?: string;
+}
+
 interface PurchaseOrder {
   id: string;
-  items: { itemId: string; name: string; quantity: number; cost: number }[];
+  items: PurchaseOrderItem[];
   total: number;
-  status: 'pending' | 'ordered' | 'received' | 'used' | 'returned' | 'cancelled';
+  status: 'pending' | 'ordered' | 'received' | 'used' | 'returned' | 'partially_returned' | 'cancelled';
   supplier: string;
   createdAt: string;
   notes: string;
@@ -101,6 +110,8 @@ export default function PurchaseOrdersPage() {
   const [selectedMonth, setSelectedMonth] = useState(3);
   const [showQuickRestockModal, setShowQuickRestockModal] = useState(false);
   const [quickRestockItems, setQuickRestockItems] = useState<{ itemId: string; quantity: number }[]>([]);
+  const [showReturnModal, setShowReturnModal] = useState(false);
+  const [returnItems, setReturnItems] = useState<{ itemId: string; quantity: number; reason: string }[]>([]);
 
   const addQuickRestockItem = (itemId: string) => {
     if (!quickRestockItems.find(i => i.itemId === itemId)) {
@@ -142,6 +153,78 @@ export default function PurchaseOrdersPage() {
     setPurchaseOrders([order, ...purchaseOrders]);
     setQuickRestockItems([]);
     setShowQuickRestockModal(false);
+  };
+
+  const openReturnModal = (order: PurchaseOrder) => {
+    setSelectedOrder(order);
+    setReturnItems(order.items.map(item => ({
+      itemId: item.itemId,
+      quantity: 0,
+      reason: ''
+    })));
+    setShowReturnModal(true);
+  };
+
+  const updateReturnQuantity = (itemId: string, qty: number) => {
+    const orderItem = selectedOrder?.items.find(i => i.itemId === itemId);
+    const maxQty = orderItem ? orderItem.quantity - (orderItem.returned || 0) : 0;
+    const validQty = Math.max(0, Math.min(qty, maxQty));
+    
+    setReturnItems(returnItems.map(i => 
+      i.itemId === itemId ? { ...i, quantity: validQty } : i
+    ));
+  };
+
+  const updateReturnReason = (itemId: string, reason: string) => {
+    setReturnItems(returnItems.map(i => 
+      i.itemId === itemId ? { ...i, reason } : i
+    ));
+  };
+
+  const submitReturn = () => {
+    if (!selectedOrder || returnItems.every(i => i.quantity === 0)) return;
+    const today = new Date().toISOString().split('T')[0];
+    
+    const returnedItems = returnItems.filter(i => i.quantity > 0);
+    
+    setPurchaseOrders(purchaseOrders.map(o => {
+      if (o.id !== selectedOrder.id) return o;
+      
+      const updatedItems = o.items.map(item => {
+        const returnItem = returnedItems.find(ri => ri.itemId === item.itemId);
+        if (returnItem) {
+          return {
+            ...item,
+            returned: (item.returned || 0) + returnItem.quantity,
+            returnReason: returnItem.reason
+          };
+        }
+        return item;
+      });
+      
+      const allReturned = updatedItems.every(item => (item.returned || 0) >= item.quantity);
+      const anyReturned = updatedItems.some(item => (item.returned || 0) > 0);
+      
+      const newStatus = allReturned ? 'returned' : anyReturned ? 'partially_returned' : 'received';
+      
+      return {
+        ...o,
+        items: updatedItems,
+        status: newStatus,
+        timeline: [
+          ...(o.timeline || [{ date: o.createdAt, status: 'pending', notes: o.notes }]),
+          { 
+            date: today, 
+            status: 'returned', 
+            notes: `Returned ${returnedItems.length} item(s): ${returnedItems.map(i => `${i.quantity}x ${o.items.find(oi => oi.itemId === i.itemId)?.name}`).join(', ')}`
+          }
+        ]
+      };
+    }));
+    
+    setReturnItems([]);
+    setSelectedOrder(null);
+    setShowReturnModal(false);
   };
 
   const suppliers = ['Fresh Foods Co', 'Ocean Catch', 'Prime Meats', 'Green Valley Farms', 'Beverage Distributors', 'Asian Supplies Co', 'Italian Imports', 'Fresh Farms', 'Restaurant Supply', 'Herb Garden'];
@@ -386,15 +469,16 @@ export default function PurchaseOrdersPage() {
 
           <div className="filter-bar">
             <input className="form-input" style={{ width: '250px' }} placeholder="Search orders..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
-            <select className="form-select" style={{ width: '150px' }} value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
-              <option value="all">All Status</option>
-              <option value="pending">Pending</option>
-              <option value="ordered">Ordered</option>
-              <option value="received">Received</option>
-              <option value="used">Used</option>
-              <option value="returned">Returned</option>
-              <option value="cancelled">Cancelled</option>
-            </select>
+             <select className="form-select" style={{ width: '150px' }} value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+               <option value="all">All Status</option>
+               <option value="pending">Pending</option>
+               <option value="ordered">Ordered</option>
+               <option value="received">Received</option>
+               <option value="used">Used</option>
+               <option value="partially_returned">Partially Returned</option>
+               <option value="returned">Returned</option>
+               <option value="cancelled">Cancelled</option>
+             </select>
             <select className="form-select" style={{ width: '180px' }} value={supplierFilter} onChange={e => setSupplierFilter(e.target.value)}>
               <option value="all">All Suppliers</option>
               {suppliers.map(s => (<option key={s} value={s}>{s}</option>))}
@@ -420,21 +504,28 @@ export default function PurchaseOrdersPage() {
                     <td className="mono" style={{ fontWeight: '600' }}>{order.id}</td>
                     <td>{order.createdAt}</td>
                     <td>{order.supplier}</td>
-                    <td>
-                      <div style={{ fontSize: '12px' }}>
-                        {order.items.map((item, idx) => (
-                          <div key={idx}>{item.name} x{item.quantity}</div>
-                        ))}
-                      </div>
-                    </td>
+                     <td>
+                       <div style={{ fontSize: '12px' }}>
+                         {order.items.map((item, idx) => (
+                           <div key={idx}>
+                             {item.name} x{item.quantity}
+                             {item.returned && item.returned > 0 && (
+                               <span style={{ color: '#f97316', marginLeft: '6px' }}>({item.returned} returned)</span>
+                             )}
+                           </div>
+                         ))}
+                       </div>
+                     </td>
                     <td className="mono" style={{ fontWeight: '600' }}>{formatCurrency(order.total)}</td>
                     <td>
-                      <span className={`badge ${
-                        order.status === 'pending' ? 'badge-pending' :
-                        order.status === 'ordered' ? 'badge-in_progress' :
-                        order.status === 'received' ? 'badge-available' :
-                        order.status === 'used' ? 'badge-warning' : 'badge-cancelled'
-                      }`}>{order.status}</span>
+                     <span className={`badge ${
+                         order.status === 'pending' ? 'badge-pending' :
+                         order.status === 'ordered' ? 'badge-in_progress' :
+                         order.status === 'received' ? 'badge-available' :
+                         order.status === 'used' ? 'badge-warning' :
+                         order.status === 'partially_returned' ? 'badge-warning' :
+                         order.status === 'returned' ? 'badge-warning' : 'badge-cancelled'
+                       }`}>{order.status.replace('_', ' ')}</span>
                     </td>
                     <td>
                   <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -477,17 +568,7 @@ export default function PurchaseOrdersPage() {
                               ]
                             } : o));
                           }}>Used</button>
-                          <button className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '13px', borderColor: '#f97316', color: '#f97316' }} onClick={() => {
-                            const today = new Date().toISOString().split('T')[0];
-                            setPurchaseOrders(purchaseOrders.map(o => o.id === order.id ? { 
-                              ...o, 
-                              status: 'returned',
-                              timeline: [
-                                ...(o.timeline || [{ date: o.createdAt, status: 'pending', notes: o.notes }]),
-                                { date: today, status: 'returned', notes: 'Items returned to supplier' }
-                              ]
-                            } : o));
-                          }}>↩️ Return</button>
+                           <button className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '13px', borderColor: '#f97316', color: '#f97316' }} onClick={() => openReturnModal(order)}>↩️ Return</button>
                         </>
                       )}
                       {order.status === 'used' && (
@@ -993,26 +1074,30 @@ export default function PurchaseOrdersPage() {
                   
                   <h3 style={{ fontSize: '24px', fontWeight: '600', marginBottom: '16px' }}>Items in this order</h3>
 
-                  <table className="data-table">
-                    <thead>
-                      <tr style={{ backgroundColor: '#222' }}>
-                        <th style={{ fontSize: '18px', color: '#888', fontWeight: '500', padding: '12px' }}>Item</th>
-                        <th style={{ fontSize: '18px', color: '#888', fontWeight: '500', padding: '12px' }}>Quantity</th>
-                        <th style={{ fontSize: '18px', color: '#888', fontWeight: '500', padding: '12px' }}>Unit Cost</th>
-                        <th style={{ fontSize: '18px', color: '#888', fontWeight: '500', padding: '12px' }}>Total</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {selectedOrder.items.map((item, idx) => (
-                        <tr key={idx} style={{ borderBottom: '1px solid #333' }}>
-                          <td style={{ fontSize: '20px', padding: '16px 12px' }}>{item.name}</td>
-                          <td style={{ fontSize: '20px', padding: '16px 12px' }}>{item.quantity}</td>
-                          <td style={{ fontSize: '20px', padding: '16px 12px' }}>{formatCurrency(item.cost)}</td>
-                          <td style={{ fontSize: '20px', padding: '16px 12px', fontWeight: '600' }}>{formatCurrency(item.quantity * item.cost)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                   <table className="data-table">
+                     <thead>
+                       <tr style={{ backgroundColor: '#222' }}>
+                         <th style={{ fontSize: '18px', color: '#888', fontWeight: '500', padding: '12px' }}>Item</th>
+                         <th style={{ fontSize: '18px', color: '#888', fontWeight: '500', padding: '12px' }}>Ordered</th>
+                         <th style={{ fontSize: '18px', color: '#888', fontWeight: '500', padding: '12px' }}>Received</th>
+                         <th style={{ fontSize: '18px', color: '#888', fontWeight: '500', padding: '12px' }}>Returned</th>
+                         <th style={{ fontSize: '18px', color: '#888', fontWeight: '500', padding: '12px' }}>Unit Cost</th>
+                         <th style={{ fontSize: '18px', color: '#888', fontWeight: '500', padding: '12px' }}>Total</th>
+                       </tr>
+                     </thead>
+                     <tbody>
+                       {selectedOrder.items.map((item, idx) => (
+                         <tr key={idx} style={{ borderBottom: '1px solid #333' }}>
+                           <td style={{ fontSize: '20px', padding: '16px 12px' }}>{item.name}</td>
+                           <td style={{ fontSize: '20px', padding: '16px 12px' }}>{item.quantity}</td>
+                           <td style={{ fontSize: '20px', padding: '16px 12px' }}>{item.quantity - (item.returned || 0)}</td>
+                           <td style={{ fontSize: '20px', padding: '16px 12px', color: '#f97316' }}>{item.returned || 0}</td>
+                           <td style={{ fontSize: '20px', padding: '16px 12px' }}>{formatCurrency(item.cost)}</td>
+                           <td style={{ fontSize: '20px', padding: '16px 12px', fontWeight: '600' }}>{formatCurrency((item.quantity - (item.returned || 0)) * item.cost)}</td>
+                         </tr>
+                       ))}
+                     </tbody>
+                   </table>
                   
                   <div style={{ textAlign: 'right', marginTop: '16px', fontSize: '24px', fontWeight: '600' }}>
                     Total: {formatCurrency(selectedOrder.total)}
@@ -1119,7 +1204,84 @@ export default function PurchaseOrdersPage() {
             </button>
           </div>
         </div>
+       </div>
+
+      {/* Return Items Modal */}
+      <div className={`modal-overlay ${showReturnModal ? 'active' : ''}`} onClick={() => setShowReturnModal(false)}>
+        <div className="modal" style={{ maxWidth: '800px' }} onClick={e => e.stopPropagation()}>
+          <div className="modal-header">
+            <h2 className="modal-title">Return Items - {selectedOrder?.id}</h2>
+            <button className="modal-close" onClick={() => setShowReturnModal(false)}>×</button>
+          </div>
+          <div className="modal-body">
+            <div className="form-label">Select items to return (enter quantity less than or equal to remaining received):</div>
+            <table className="data-table" style={{ marginTop: '12px' }}>
+              <thead>
+                <tr>
+                  <th>Item</th>
+                  <th>Ordered</th>
+                  <th>Remaining</th>
+                  <th>Return Qty</th>
+                  <th>Return Reason</th>
+                </tr>
+              </thead>
+              <tbody>
+                {selectedOrder?.items.map((item) => {
+                  const returnItem = returnItems.find(ri => ri.itemId === item.itemId);
+                  const remaining = item.quantity - (item.returned || 0);
+                  return (
+                    <tr key={item.itemId}>
+                      <td>{item.name}</td>
+                      <td>{item.quantity}</td>
+                      <td>{remaining}</td>
+                      <td>
+                        <input
+                          type="number"
+                          min="0"
+                          max={remaining}
+                          value={returnItem?.quantity || 0}
+                          onChange={e => updateReturnQuantity(item.itemId, parseInt(e.target.value) || 0)}
+                          style={{ width: '80px' }}
+                          className="form-input"
+                        />
+                      </td>
+                      <td>
+                        <input
+                          type="text"
+                          placeholder="Reason for return..."
+                          value={returnItem?.reason || ''}
+                          onChange={e => updateReturnReason(item.itemId, e.target.value)}
+                          className="form-input"
+                        />
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            
+            {returnItems.some(i => i.quantity > 0) && (
+              <div style={{ marginTop: '16px', padding: '16px', backgroundColor: 'var(--bg-elevated)', borderRadius: '8px' }}>
+                <div style={{ fontWeight: '600', marginBottom: '8px' }}>Return Summary</div>
+                {returnItems.filter(i => i.quantity > 0).map(ri => {
+                  const item = selectedOrder?.items.find(i => i.itemId === ri.itemId);
+                  return (
+                    <div key={ri.itemId} style={{ marginBottom: '4px' }}>
+                      {item?.name}: {ri.quantity} units {ri.reason && `- ${ri.reason}`}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+          <div className="modal-footer">
+            <button className="btn btn-secondary" onClick={() => setShowReturnModal(false)}>Cancel</button>
+            <button className="btn btn-primary" onClick={submitReturn} disabled={returnItems.every(i => i.quantity === 0)}>
+              Confirm Return {returnItems.filter(i => i.quantity > 0).length > 0 ? `(${returnItems.filter(i => i.quantity > 0).length} items)` : ''}
+            </button>
+          </div>
+        </div>
       </div>
-    </>
-  );
-}
+     </>
+   );
+ }
