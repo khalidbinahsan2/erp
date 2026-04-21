@@ -665,10 +665,34 @@ export default function PurchaseOrdersPage() {
           <div className="modal-body" style={{ padding: '32px' }}>
             {selectedOrder && (
               <>
+                <h3 style={{ fontSize: '24px', fontWeight: '600', marginBottom: '24px' }}>Order Timeline</h3>
+
+                <table className="data-table" style={{ marginBottom: '32px' }}>
+                  <thead>
+                    <tr style={{ backgroundColor: '#222' }}>
+                      <th style={{ fontSize: '18px', color: '#888', fontWeight: '500', padding: '12px' }}>Date</th>
+                      <th style={{ fontSize: '18px', color: '#888', fontWeight: '500', padding: '12px' }}>Status</th>
+                      <th style={{ fontSize: '18px', color: '#888', fontWeight: '500', padding: '12px' }}>Notes</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr style={{ borderBottom: '1px solid #333' }}>
+                      <td style={{ fontSize: '20px', padding: '16px 12px' }}>{selectedOrder.createdAt}</td>
+                      <td style={{ padding: '16px 12px' }}>
+                        <span className={`badge ${
+                          selectedOrder.status === 'pending' ? 'badge-pending' :
+                          selectedOrder.status === 'ordered' ? 'badge-in_progress' :
+                          selectedOrder.status === 'received' ? 'badge-available' :
+                          selectedOrder.status === 'used' ? 'badge-warning' : 'badge-cancelled'
+                        }`}>{selectedOrder.status}</span>
+                      </td>
+                      <td style={{ fontSize: '20px', padding: '16px 12px' }}>{selectedOrder.notes || '-'}</td>
+                    </tr>
+                  </tbody>
+                </table>
+
                 <div style={{ marginBottom: '24px' }}>
                   <div style={{ fontSize: '16px', color: '#888', marginBottom: '8px' }}>Supplier: {selectedOrder.supplier}</div>
-                  <div style={{ fontSize: '16px', color: '#888', marginBottom: '8px' }}>Date: {selectedOrder.createdAt}</div>
-                  <div style={{ fontSize: '16px', color: '#888', marginBottom: '24px' }}>Status: {selectedOrder.status}</div>
                   
                   <h3 style={{ fontSize: '24px', fontWeight: '600', marginBottom: '16px' }}>Items in this order</h3>
 
