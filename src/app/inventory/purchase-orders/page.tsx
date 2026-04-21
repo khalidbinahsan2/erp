@@ -68,7 +68,7 @@ interface YearlyPurchase {
   monthlyBreakdown: { month: string; quantity: number; cost: number }[];
 }
 
-export default function PurchaseOrdersPage() {
+function usePurchaseOrders() {
   const [items, setItems] = useState<InventoryItem[]>(initialInventory);
   const [view, setView] = useState<'orders' | 'monthly' | 'yearly'>('orders');
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([
@@ -387,7 +387,7 @@ export default function PurchaseOrdersPage() {
   }, [newOrder]);
 
   // Calculate monthly purchases
-  const getMonthlyPurchases = (year: number): MonthlyPurchase[] => {
+  const getMonthlyPurchases = useCallback((year: number): MonthlyPurchase[] => {
     const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
     const result: MonthlyPurchase[] = [];
 
@@ -429,10 +429,10 @@ export default function PurchaseOrdersPage() {
     }
 
     return result;
-  };
+  }, [purchaseOrders, items]);
 
   // Calculate yearly purchases
-  const getYearlyPurchases = (): YearlyPurchase[] => {
+  const getYearlyPurchases = useCallback((): YearlyPurchase[] => {
     const years = [...new Set(purchaseOrders.map(o => parseInt(o.createdAt.split('-')[0])))].sort();
     const result: YearlyPurchase[] = [];
 
@@ -482,10 +482,10 @@ export default function PurchaseOrdersPage() {
     });
 
     return result;
-  };
+  }, [purchaseOrders, items]);
 
-  const monthlyData = useMemo(() => getMonthlyPurchases(selectedYear), [selectedYear, purchaseOrders, items]);
-  const yearlyData = useMemo(() => getYearlyPurchases(), [purchaseOrders, items]);
+  const monthlyData = useMemo(() => getMonthlyPurchases(selectedYear), [selectedYear, getMonthlyPurchases]);
+  const yearlyData = useMemo(() => getYearlyPurchases(), [getYearlyPurchases]);
   const currentMonthData = useMemo(() => monthlyData[selectedMonth], [monthlyData, selectedMonth]);
   const currentYearData = useMemo(() => yearlyData.find(y => y.year === selectedYear), [yearlyData, selectedYear]);
 
@@ -530,6 +530,157 @@ export default function PurchaseOrdersPage() {
   const cancelledTotal = useMemo(() => 
     purchaseOrders.filter(o => o.status === 'cancelled').reduce((sum, o) => sum + o.total, 0), 
   [purchaseOrders]);
+
+  return {
+    // State
+    items,
+    view,
+    setView,
+    purchaseOrders,
+    statusFilter,
+    setStatusFilter,
+    supplierFilter,
+    setSupplierFilter,
+    searchTerm,
+    setSearchTerm,
+    showCreateModal,
+    setShowCreateModal,
+    showDetailModal,
+    setShowDetailModal,
+    selectedOrder,
+    setSelectedOrder,
+    selectedYear,
+    setSelectedYear,
+    selectedMonth,
+    setSelectedMonth,
+    showQuickRestockModal,
+    setShowQuickRestockModal,
+    quickRestockItems,
+    setQuickRestockItems,
+    showReturnModal,
+    setShowReturnModal,
+    returnItems,
+    setReturnItems,
+    newOrder,
+    setNewOrder,
+    selectedItem,
+    setSelectedItem,
+    itemQty,
+    setItemQty,
+    itemCost,
+    setItemCost,
+    
+    // Handlers
+    addQuickRestockItem,
+    updateQuickRestockQty,
+    removeQuickRestockItem,
+    submitQuickRestock,
+    openReturnModal,
+    updateReturnQuantity,
+    updateReturnReason,
+    submitReturn,
+    handleOrderStatusToOrdered,
+    handleOrderStatusToReceived,
+    handleOrderStatusToUsed,
+    handleRestockOrder,
+    handleCancelOrder,
+    handleDeleteOrder,
+    handleViewHistory,
+    addItemToOrder,
+    removeItem,
+    createOrder,
+    
+    // Calculated values
+    suppliers,
+    monthlyData,
+    yearlyData,
+    currentMonthData,
+    currentYearData,
+    topPurchasedMonth,
+    topPurchasedYear,
+    monthNames,
+    filteredOrders,
+    pendingTotal,
+    orderedTotal,
+    receivedTotal,
+    usedTotal,
+    cancelledTotal,
+  };
+}
+
+export default function PurchaseOrdersPage() {
+  const {
+    items,
+    view,
+    setView,
+    purchaseOrders,
+    statusFilter,
+    setStatusFilter,
+    supplierFilter,
+    setSupplierFilter,
+    searchTerm,
+    setSearchTerm,
+    showCreateModal,
+    setShowCreateModal,
+    showDetailModal,
+    setShowDetailModal,
+    selectedOrder,
+    setSelectedOrder,
+    selectedYear,
+    setSelectedYear,
+    selectedMonth,
+    setSelectedMonth,
+    showQuickRestockModal,
+    setShowQuickRestockModal,
+    quickRestockItems,
+    setQuickRestockItems,
+    showReturnModal,
+    setShowReturnModal,
+    returnItems,
+    setReturnItems,
+    newOrder,
+    setNewOrder,
+    selectedItem,
+    setSelectedItem,
+    itemQty,
+    setItemQty,
+    itemCost,
+    setItemCost,
+    
+    addQuickRestockItem,
+    updateQuickRestockQty,
+    removeQuickRestockItem,
+    submitQuickRestock,
+    openReturnModal,
+    updateReturnQuantity,
+    updateReturnReason,
+    submitReturn,
+    handleOrderStatusToOrdered,
+    handleOrderStatusToReceived,
+    handleOrderStatusToUsed,
+    handleRestockOrder,
+    handleCancelOrder,
+    handleDeleteOrder,
+    handleViewHistory,
+    addItemToOrder,
+    removeItem,
+    createOrder,
+    
+    suppliers,
+    monthlyData,
+    yearlyData,
+    currentMonthData,
+    currentYearData,
+    topPurchasedMonth,
+    topPurchasedYear,
+    monthNames,
+    filteredOrders,
+    pendingTotal,
+    orderedTotal,
+    receivedTotal,
+    usedTotal,
+    cancelledTotal,
+  } = usePurchaseOrders();
 
   return (
     <>
@@ -691,12 +842,12 @@ export default function PurchaseOrdersPage() {
                           <button style={{ padding: '10px 16px', textAlign: 'left', border: 'none', background: 'none', width: '100%', cursor: 'pointer' }} 
                             onClick={() => alert('Export PDF')}>Export PDF</button>
                           <button style={{ padding: '10px 16px', textAlign: 'left', border: 'none', background: 'none', width: '100%', cursor: 'pointer', color: 'var(--danger)' }} 
-                            onClick={() => setPurchaseOrders(purchaseOrders.filter(o => o.id !== order.id))}>Delete</button>
+                            onClick={() => handleDeleteOrder(order.id)}>Delete</button>
                         </div>
                       </div>
                       
                       {order.status !== 'received' && order.status !== 'used' && (
-                        <button className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '13px', borderColor: '#ef4444', color: '#ef4444' }} onClick={() => setPurchaseOrders(purchaseOrders.map(o => o.id === order.id ? { ...o, status: 'cancelled' } : o))}>Cancel</button>
+                        <button className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '13px', borderColor: '#ef4444', color: '#ef4444' }} onClick={() => handleCancelOrder(order)}>Cancel</button>
                       )}
                     </div>
                     </td>
