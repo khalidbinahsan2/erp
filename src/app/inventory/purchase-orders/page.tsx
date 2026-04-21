@@ -10,7 +10,7 @@ function formatCurrency(value: number): string {
 
 interface OrderTimelineEvent {
   date: string;
-  status: 'pending' | 'ordered' | 'received' | 'used' | 'cancelled';
+  status: 'pending' | 'ordered' | 'received' | 'used' | 'returned' | 'cancelled';
   notes?: string;
 }
 
@@ -18,7 +18,7 @@ interface PurchaseOrder {
   id: string;
   items: { itemId: string; name: string; quantity: number; cost: number }[];
   total: number;
-  status: 'pending' | 'ordered' | 'received' | 'used' | 'cancelled';
+  status: 'pending' | 'ordered' | 'received' | 'used' | 'returned' | 'cancelled';
   supplier: string;
   createdAt: string;
   notes: string;
@@ -351,7 +351,7 @@ export default function PurchaseOrdersPage() {
 
       {view === 'orders' && (
         <>
-            <div className="stat-grid" style={{ marginBottom: '24px', gridTemplateColumns: 'repeat(5, 1fr)' }}>
+            <div className="stat-grid" style={{ marginBottom: '24px', gridTemplateColumns: 'repeat(6, 1fr)' }}>
             <div className="stat-card" style={{ background: '#f59e0b' }}>
               <div className="stat-value" style={{ fontSize: '32px' }}>{purchaseOrders.filter(o => o.status === 'pending').length}</div>
               <div className="stat-label">Pending</div>
@@ -372,6 +372,11 @@ export default function PurchaseOrdersPage() {
               <div className="stat-label">Used</div>
               <div className="mono" style={{ fontSize: '14px', marginTop: '8px' }}>{formatCurrency(usedTotal)}</div>
             </div>
+            <div className="stat-card" style={{ background: '#f97316' }}>
+              <div className="stat-value" style={{ fontSize: '32px' }}>{purchaseOrders.filter(o => o.status === 'returned').length}</div>
+              <div className="stat-label">Returned</div>
+              <div className="mono" style={{ fontSize: '14px', marginTop: '8px' }}>{formatCurrency(purchaseOrders.filter(o => o.status === 'returned').reduce((sum, o) => sum + o.total, 0))}</div>
+            </div>
             <div className="stat-card" style={{ background: '#ef4444' }}>
               <div className="stat-value" style={{ fontSize: '32px' }}>{purchaseOrders.filter(o => o.status === 'cancelled').length}</div>
               <div className="stat-label">Cancelled</div>
@@ -387,6 +392,7 @@ export default function PurchaseOrdersPage() {
               <option value="ordered">Ordered</option>
               <option value="received">Received</option>
               <option value="used">Used</option>
+              <option value="returned">Returned</option>
               <option value="cancelled">Cancelled</option>
             </select>
             <select className="form-select" style={{ width: '180px' }} value={supplierFilter} onChange={e => setSupplierFilter(e.target.value)}>
@@ -459,17 +465,30 @@ export default function PurchaseOrdersPage() {
                         }}>Receive</button>
                       )}
                       {order.status === 'received' && (
-                        <button className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '13px' }} onClick={() => {
-                          const today = new Date().toISOString().split('T')[0];
-                          setPurchaseOrders(purchaseOrders.map(o => o.id === order.id ? { 
-                            ...o, 
-                            status: 'used',
-                            timeline: [
-                              ...(o.timeline || [{ date: o.createdAt, status: 'pending', notes: o.notes }]),
-                              { date: today, status: 'used', notes: 'Inventory items marked as used' }
-                            ]
-                          } : o));
-                        }}>Used</button>
+                        <>
+                          <button className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '13px' }} onClick={() => {
+                            const today = new Date().toISOString().split('T')[0];
+                            setPurchaseOrders(purchaseOrders.map(o => o.id === order.id ? { 
+                              ...o, 
+                              status: 'used',
+                              timeline: [
+                                ...(o.timeline || [{ date: o.createdAt, status: 'pending', notes: o.notes }]),
+                                { date: today, status: 'used', notes: 'Inventory items marked as used' }
+                              ]
+                            } : o));
+                          }}>Used</button>
+                          <button className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '13px', borderColor: '#f97316', color: '#f97316' }} onClick={() => {
+                            const today = new Date().toISOString().split('T')[0];
+                            setPurchaseOrders(purchaseOrders.map(o => o.id === order.id ? { 
+                              ...o, 
+                              status: 'returned',
+                              timeline: [
+                                ...(o.timeline || [{ date: o.createdAt, status: 'pending', notes: o.notes }]),
+                                { date: today, status: 'returned', notes: 'Items returned to supplier' }
+                              ]
+                            } : o));
+                          }}>↩️ Return</button>
+                        </>
                       )}
                       {order.status === 'used' && (
                         <button className="btn btn-primary" style={{ padding: '6px 12px', fontSize: '13px' }} onClick={() => {
@@ -955,12 +974,13 @@ export default function PurchaseOrdersPage() {
                       <tr style={{ borderBottom: '1px solid #333' }}>
                         <td style={{ fontSize: '20px', padding: '16px 12px' }}>{selectedOrder.createdAt}</td>
                         <td style={{ padding: '16px 12px' }}>
-                          <span className={`badge ${
-                            selectedOrder.status === 'pending' ? 'badge-pending' :
-                            selectedOrder.status === 'ordered' ? 'badge-in_progress' :
-                            selectedOrder.status === 'received' ? 'badge-available' :
-                            selectedOrder.status === 'used' ? 'badge-warning' : 'badge-cancelled'
-                          }`}>{selectedOrder.status}</span>
+                        <span className={`badge ${
+                          selectedOrder.status === 'pending' ? 'badge-pending' :
+                          selectedOrder.status === 'ordered' ? 'badge-in_progress' :
+                          selectedOrder.status === 'received' ? 'badge-available' :
+                          selectedOrder.status === 'used' ? 'badge-warning' :
+                          selectedOrder.status === 'returned' ? 'badge-warning' : 'badge-cancelled'
+                        }`}>{selectedOrder.status}</span>
                         </td>
                         <td style={{ fontSize: '20px', padding: '16px 12px' }}>{selectedOrder.notes || '-'}</td>
                       </tr>
