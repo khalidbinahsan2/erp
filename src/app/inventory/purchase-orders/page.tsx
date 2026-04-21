@@ -8,6 +8,12 @@ function formatCurrency(value: number): string {
   return `$${value.toFixed(2)}`;
 }
 
+interface OrderTimelineEvent {
+  date: string;
+  status: 'pending' | 'ordered' | 'received' | 'used' | 'cancelled';
+  notes?: string;
+}
+
 interface PurchaseOrder {
   id: string;
   items: { itemId: string; name: string; quantity: number; cost: number }[];
@@ -16,6 +22,7 @@ interface PurchaseOrder {
   supplier: string;
   createdAt: string;
   notes: string;
+  timeline?: OrderTimelineEvent[];
 }
 
 interface PurchasedItem {
@@ -124,14 +131,16 @@ export default function PurchaseOrdersPage() {
   const createOrder = () => {
     if (!newOrder.supplier || newOrder.items.length === 0) return;
     const total = newOrder.items.reduce((sum, item) => sum + item.quantity * item.cost, 0);
+    const today = new Date().toISOString().split('T')[0];
     const order: PurchaseOrder = {
       id: `PO-${String(purchaseOrders.length + 1).padStart(3, '0')}`,
       items: newOrder.items,
       total,
       status: 'pending',
       supplier: newOrder.supplier,
-      createdAt: new Date().toISOString().split('T')[0],
-      notes: newOrder.notes
+      createdAt: today,
+      notes: newOrder.notes,
+      timeline: [{ date: today, status: 'pending', notes: newOrder.notes || 'Order created' }]
     };
     setPurchaseOrders([order, ...purchaseOrders]);
     setShowCreateModal(false);
@@ -359,13 +368,43 @@ export default function PurchaseOrdersPage() {
                     <td>
 <div style={{ display: 'flex', gap: '8px' }}>
                       {order.status === 'pending' && (
-                        <button className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '13px' }} onClick={() => setPurchaseOrders(purchaseOrders.map(o => o.id === order.id ? { ...o, status: 'ordered' } : o))}>Order</button>
+                        <button className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '13px' }} onClick={() => {
+                          const today = new Date().toISOString().split('T')[0];
+                          setPurchaseOrders(purchaseOrders.map(o => o.id === order.id ? { 
+                            ...o, 
+                            status: 'ordered',
+                            timeline: [
+                              ...(o.timeline || [{ date: o.createdAt, status: 'pending', notes: o.notes }]),
+                              { date: today, status: 'ordered', notes: 'Order placed with supplier' }
+                            ]
+                          } : o));
+                        }}>Order</button>
                       )}
                       {order.status === 'ordered' && (
-                        <button className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '13px' }} onClick={() => setPurchaseOrders(purchaseOrders.map(o => o.id === order.id ? { ...o, status: 'received' } : o))}>Receive</button>
+                        <button className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '13px' }} onClick={() => {
+                          const today = new Date().toISOString().split('T')[0];
+                          setPurchaseOrders(purchaseOrders.map(o => o.id === order.id ? { 
+                            ...o, 
+                            status: 'received',
+                            timeline: [
+                              ...(o.timeline || [{ date: o.createdAt, status: 'pending', notes: o.notes }]),
+                              { date: today, status: 'received', notes: 'Delivery received and checked' }
+                            ]
+                          } : o));
+                        }}>Receive</button>
                       )}
                       {order.status === 'received' && (
-                        <button className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '13px' }} onClick={() => setPurchaseOrders(purchaseOrders.map(o => o.id === order.id ? { ...o, status: 'used' } : o))}>Used</button>
+                        <button className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '13px' }} onClick={() => {
+                          const today = new Date().toISOString().split('T')[0];
+                          setPurchaseOrders(purchaseOrders.map(o => o.id === order.id ? { 
+                            ...o, 
+                            status: 'used',
+                            timeline: [
+                              ...(o.timeline || [{ date: o.createdAt, status: 'pending', notes: o.notes }]),
+                              { date: today, status: 'used', notes: 'Inventory items marked as used' }
+                            ]
+                          } : o));
+                        }}>Used</button>
                       )}
                       <button className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '13px' }} onClick={() => { setSelectedOrder(order); setShowDetailModal(true); }}>History</button>
                       {order.status !== 'received' && order.status !== 'used' && (
@@ -676,18 +715,35 @@ export default function PurchaseOrdersPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    <tr style={{ borderBottom: '1px solid #333' }}>
-                      <td style={{ fontSize: '20px', padding: '16px 12px' }}>{selectedOrder.createdAt}</td>
-                      <td style={{ padding: '16px 12px' }}>
-                        <span className={`badge ${
-                          selectedOrder.status === 'pending' ? 'badge-pending' :
-                          selectedOrder.status === 'ordered' ? 'badge-in_progress' :
-                          selectedOrder.status === 'received' ? 'badge-available' :
-                          selectedOrder.status === 'used' ? 'badge-warning' : 'badge-cancelled'
-                        }`}>{selectedOrder.status}</span>
-                      </td>
-                      <td style={{ fontSize: '20px', padding: '16px 12px' }}>{selectedOrder.notes || '-'}</td>
-                    </tr>
+                    {selectedOrder.timeline && selectedOrder.timeline.length > 0 ? (
+                      selectedOrder.timeline.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map((event, idx) => (
+                        <tr key={idx} style={{ borderBottom: '1px solid #333' }}>
+                          <td style={{ fontSize: '20px', padding: '16px 12px' }}>{event.date}</td>
+                          <td style={{ padding: '16px 12px' }}>
+                            <span className={`badge ${
+                              event.status === 'pending' ? 'badge-pending' :
+                              event.status === 'ordered' ? 'badge-in_progress' :
+                              event.status === 'received' ? 'badge-available' :
+                              event.status === 'used' ? 'badge-warning' : 'badge-cancelled'
+                            }`}>{event.status}</span>
+                          </td>
+                          <td style={{ fontSize: '20px', padding: '16px 12px' }}>{event.notes || '-'}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr style={{ borderBottom: '1px solid #333' }}>
+                        <td style={{ fontSize: '20px', padding: '16px 12px' }}>{selectedOrder.createdAt}</td>
+                        <td style={{ padding: '16px 12px' }}>
+                          <span className={`badge ${
+                            selectedOrder.status === 'pending' ? 'badge-pending' :
+                            selectedOrder.status === 'ordered' ? 'badge-in_progress' :
+                            selectedOrder.status === 'received' ? 'badge-available' :
+                            selectedOrder.status === 'used' ? 'badge-warning' : 'badge-cancelled'
+                          }`}>{selectedOrder.status}</span>
+                        </td>
+                        <td style={{ fontSize: '20px', padding: '16px 12px' }}>{selectedOrder.notes || '-'}</td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
 
