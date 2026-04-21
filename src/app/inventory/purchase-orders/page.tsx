@@ -257,6 +257,8 @@ export default function PurchaseOrdersPage() {
   const pendingTotal = purchaseOrders.filter(o => o.status === 'pending').reduce((sum, o) => sum + o.total, 0);
   const orderedTotal = purchaseOrders.filter(o => o.status === 'ordered').reduce((sum, o) => sum + o.total, 0);
   const receivedTotal = purchaseOrders.filter(o => o.status === 'received').reduce((sum, o) => sum + o.total, 0);
+  const usedTotal = purchaseOrders.filter(o => o.status === 'used').reduce((sum, o) => sum + o.total, 0);
+  const cancelledTotal = purchaseOrders.filter(o => o.status === 'cancelled').reduce((sum, o) => sum + o.total, 0);
 
   return (
     <>
@@ -275,29 +277,31 @@ export default function PurchaseOrdersPage() {
 
       {view === 'orders' && (
         <>
-          <div className="stat-grid" style={{ marginBottom: '24px' }}>
-            <div className="stat-card" style={{ background: 'var(--warning)' }}>
+            <div className="stat-grid" style={{ marginBottom: '24px', gridTemplateColumns: 'repeat(5, 1fr)' }}>
+            <div className="stat-card" style={{ background: '#f59e0b' }}>
               <div className="stat-value" style={{ fontSize: '32px' }}>{purchaseOrders.filter(o => o.status === 'pending').length}</div>
               <div className="stat-label">Pending</div>
               <div className="mono" style={{ fontSize: '14px', marginTop: '8px' }}>{formatCurrency(pendingTotal)}</div>
             </div>
-            <div className="stat-card" style={{ background: 'var(--primary)' }}>
+            <div className="stat-card" style={{ background: '#f97316' }}>
               <div className="stat-value" style={{ fontSize: '32px' }}>{purchaseOrders.filter(o => o.status === 'ordered').length}</div>
               <div className="stat-label">Ordered</div>
               <div className="mono" style={{ fontSize: '14px', marginTop: '8px' }}>{formatCurrency(orderedTotal)}</div>
             </div>
-            <div className="stat-card" style={{ background: 'var(--success)' }}>
+            <div className="stat-card" style={{ background: '#171717', border: '1px solid #444' }}>
               <div className="stat-value" style={{ fontSize: '32px' }}>{purchaseOrders.filter(o => o.status === 'received').length}</div>
               <div className="stat-label">Received</div>
               <div className="mono" style={{ fontSize: '14px', marginTop: '8px' }}>{formatCurrency(receivedTotal)}</div>
             </div>
-            <div className="stat-card" style={{ background: 'var(--warning)' }}>
+            <div className="stat-card" style={{ background: '#f59e0b' }}>
               <div className="stat-value" style={{ fontSize: '32px' }}>{purchaseOrders.filter(o => o.status === 'used').length}</div>
               <div className="stat-label">Used</div>
+              <div className="mono" style={{ fontSize: '14px', marginTop: '8px' }}>{formatCurrency(usedTotal)}</div>
             </div>
-            <div className="stat-card" style={{ background: 'var(--danger)' }}>
+            <div className="stat-card" style={{ background: '#ef4444' }}>
               <div className="stat-value" style={{ fontSize: '32px' }}>{purchaseOrders.filter(o => o.status === 'cancelled').length}</div>
               <div className="stat-label">Cancelled</div>
+              <div className="mono" style={{ fontSize: '14px', marginTop: '8px' }}>{formatCurrency(cancelledTotal)}</div>
             </div>
           </div>
 
@@ -353,25 +357,21 @@ export default function PurchaseOrdersPage() {
                       }`}>{order.status}</span>
                     </td>
                     <td>
-                      <div style={{ display: 'flex', gap: '4px' }}>
-                        {order.status === 'pending' && (
-                          <button className="action-btn" onClick={() => setPurchaseOrders(purchaseOrders.map(o => o.id === order.id ? { ...o, status: 'ordered' } : o))}>Order</button>
-                        )}
-                        {order.status === 'ordered' && (
-                          <button className="action-btn" onClick={() => setPurchaseOrders(purchaseOrders.map(o => o.id === order.id ? { ...o, status: 'received' } : o))}>Receive</button>
-                        )}
-                        {order.status === 'received' && (
-                          <>
-                            <button className="action-btn edit" onClick={() => {
-                              setPurchaseOrders(purchaseOrders.map(o => o.id === order.id ? { ...o, status: 'used' } : o));
-                            }}>Used</button>
-                          </>
-                        )}
-                        <button className="action-btn" style={{ color: 'var(--text-muted)' }} onClick={() => { setSelectedOrder(order); setShowDetailModal(true); }}>View</button>
-                        {order.status !== 'received' && order.status !== 'used' && (
-                          <button className="action-btn" style={{ color: 'var(--danger)' }} onClick={() => setPurchaseOrders(purchaseOrders.map(o => o.id === order.id ? { ...o, status: 'cancelled' } : o))}>Cancel</button>
-                        )}
-                      </div>
+<div style={{ display: 'flex', gap: '8px' }}>
+                      {order.status === 'pending' && (
+                        <button className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '13px' }} onClick={() => setPurchaseOrders(purchaseOrders.map(o => o.id === order.id ? { ...o, status: 'ordered' } : o))}>Order</button>
+                      )}
+                      {order.status === 'ordered' && (
+                        <button className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '13px' }} onClick={() => setPurchaseOrders(purchaseOrders.map(o => o.id === order.id ? { ...o, status: 'received' } : o))}>Receive</button>
+                      )}
+                      {order.status === 'received' && (
+                        <button className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '13px' }} onClick={() => setPurchaseOrders(purchaseOrders.map(o => o.id === order.id ? { ...o, status: 'used' } : o))}>Used</button>
+                      )}
+                      <button className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '13px' }} onClick={() => { setSelectedOrder(order); setShowDetailModal(true); }}>View</button>
+                      {order.status !== 'received' && order.status !== 'used' && (
+                        <button className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '13px', borderColor: '#ef4444', color: '#ef4444' }} onClick={() => setPurchaseOrders(purchaseOrders.map(o => o.id === order.id ? { ...o, status: 'cancelled' } : o))}>Cancel</button>
+                      )}
+                    </div>
                     </td>
                   </tr>
                 ))}
