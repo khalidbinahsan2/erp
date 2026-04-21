@@ -113,7 +113,11 @@ export const menuItems: MenuItem[] = [
   }
 ];
 
+const now = new Date();
+const baseTime = now.getTime();
+
 export const orders: Order[] = [
+  // Current month (April 2026)
   {
     id: 'ORD-001',
     tableId: '1',
@@ -123,9 +127,8 @@ export const orders: Order[] = [
       { menuItemId: '8', name: 'Craft Lemonade', quantity: 2, price: 6.00 }
     ],
     total: 68.00,
-    status: 'in_progress',
-    createdAt: new Date(Date.now() - 30 * 60000),
-    specialInstructions: 'Extra cheese on risotto',
+    status: 'completed',
+    createdAt: new Date(baseTime - 30 * 60000),
     customerId: '1',
     customerName: 'John Smith'
   },
@@ -138,8 +141,8 @@ export const orders: Order[] = [
       { menuItemId: '3', name: 'Caesar Salad', quantity: 1, price: 14.00 }
     ],
     total: 40.00,
-    status: 'pending',
-    createdAt: new Date(Date.now() - 5 * 60000),
+    status: 'completed',
+    createdAt: new Date(baseTime - 5 * 60000),
     customerId: '2',
     customerName: 'Sarah Johnson'
   },
@@ -153,7 +156,7 @@ export const orders: Order[] = [
     ],
     total: 44.00,
     status: 'completed',
-    createdAt: new Date(Date.now() - 90 * 60000),
+    createdAt: new Date(baseTime - 90 * 60000),
     customerId: '4',
     customerName: 'Emily Davis'
   },
@@ -165,8 +168,8 @@ export const orders: Order[] = [
       { menuItemId: '6', name: 'Spicy Ramen', quantity: 3, price: 22.00 }
     ],
     total: 66.00,
-    status: 'ready',
-    createdAt: new Date(Date.now() - 20 * 60000),
+    status: 'completed',
+    createdAt: new Date(baseTime - 20 * 60000),
     customerId: '6',
     customerName: 'Jennifer Lee'
   },
@@ -179,9 +182,10 @@ export const orders: Order[] = [
       { menuItemId: '9', name: 'Vegan Buddha Bowl', quantity: 1, price: 19.00 }
     ],
     total: 39.00,
-    status: 'cancelled',
-    createdAt: new Date(Date.now() - 120 * 60000),
-    specialInstructions: 'Customer changed mind'
+    status: 'completed',
+    createdAt: new Date(baseTime - 120 * 60000),
+    customerId: '3',
+    customerName: 'Michael Brown'
   },
   {
     id: 'ORD-006',
@@ -193,9 +197,63 @@ export const orders: Order[] = [
       { menuItemId: '5', name: 'Tiramisu', quantity: 1, price: 12.00 }
     ],
     total: 70.00,
-    status: 'pending',
-    createdAt: new Date(Date.now() - 2 * 60000)
-  }
+    status: 'completed',
+    createdAt: new Date(baseTime - 2 * 60000),
+    customerId: '5',
+    customerName: 'Robert Wilson'
+  },
+
+  // March 2026 orders
+  { id: 'ORD-007', tableId: '1', tableNumber: 3, items: [{ menuItemId: '1', name: 'Truffle Risotto', quantity: 1, price: 28.00 }, { menuItemId: '8', name: 'Craft Lemonade', quantity: 1, price: 6.00 }], total: 34.00, status: 'completed', createdAt: new Date(2026, 2, 15, 12, 30) },
+  { id: 'ORD-008', tableId: '2', tableNumber: 7, items: [{ menuItemId: '4', name: 'Wagyu Burger', quantity: 2, price: 26.00 }, { menuItemId: '3', name: 'Caesar Salad', quantity: 2, price: 14.00 }], total: 80.00, status: 'completed', createdAt: new Date(2026, 2, 15, 13, 45) },
+  { id: 'ORD-009', tableId: '3', tableNumber: 5, items: [{ menuItemId: '2', name: 'Grilled Salmon', quantity: 2, price: 32.00 }, { menuItemId: '5', name: 'Tiramisu', quantity: 2, price: 12.00 }], total: 88.00, status: 'completed', createdAt: new Date(2026, 2, 16, 19, 0) },
+  { id: 'ORD-010', tableId: '4', tableNumber: 9, items: [{ menuItemId: '6', name: 'Spicy Ramen', quantity: 4, price: 22.00 }], total: 88.00, status: 'completed', createdAt: new Date(2026, 2, 17, 12, 15) },
+  { id: 'ORD-011', tableId: '5', tableNumber: 2, items: [{ menuItemId: '7', name: 'Bruschetta', quantity: 3, price: 10.00 }, { menuItemId: '9', name: 'Vegan Buddha Bowl', quantity: 2, price: 19.00 }], total: 68.00, status: 'completed', createdAt: new Date(2026, 2, 18, 20, 30) },
+  { id: 'ORD-012', tableId: '6', tableNumber: 11, items: [{ menuItemId: '1', name: 'Truffle Risotto', quantity: 3, price: 28.00 }, { menuItemId: '8', name: 'Craft Lemonade', quantity: 3, price: 6.00 }], total: 102.00, status: 'completed', createdAt: new Date(2026, 2, 20, 18, 0) },
+  { id: 'ORD-013', tableId: '7', tableNumber: 4, items: [{ menuItemId: '4', name: 'Wagyu Burger', quantity: 1, price: 26.00 }, { menuItemId: '5', name: 'Tiramisu', quantity: 1, price: 12.00 }], total: 38.00, status: 'completed', createdAt: new Date(2026, 2, 22, 13, 0) },
+  { id: 'ORD-014', tableId: '8', tableNumber: 6, items: [{ menuItemId: '2', name: 'Grilled Salmon', quantity: 1, price: 32.00 }, { menuItemId: '3', name: 'Caesar Salad', quantity: 1, price: 14.00 }], total: 46.00, status: 'completed', createdAt: new Date(2026, 2, 25, 19, 30) },
+  { id: 'ORD-015', tableId: '9', tableNumber: 8, items: [{ menuItemId: '6', name: 'Spicy Ramen', quantity: 2, price: 22.00 }, { menuItemId: '8', name: 'Craft Lemonade', quantity: 2, price: 6.00 }], total: 56.00, status: 'completed', createdAt: new Date(2026, 2, 28, 20, 0) },
+
+  // February 2026 orders
+  { id: 'ORD-016', tableId: '1', tableNumber: 1, items: [{ menuItemId: '1', name: 'Truffle Risotto', quantity: 2, price: 28.00 }], total: 56.00, status: 'completed', createdAt: new Date(2026, 1, 5, 12, 0) },
+  { id: 'ORD-017', tableId: '2', tableNumber: 4, items: [{ menuItemId: '4', name: 'Wagyu Burger', quantity: 3, price: 26.00 }, { menuItemId: '3', name: 'Caesar Salad', quantity: 1, price: 14.00 }], total: 92.00, status: 'completed', createdAt: new Date(2026, 1, 8, 13, 30) },
+  { id: 'ORD-018', tableId: '3', tableNumber: 6, items: [{ menuItemId: '2', name: 'Grilled Salmon', quantity: 2, price: 32.00 }, { menuItemId: '5', name: 'Tiramisu', quantity: 2, price: 12.00 }], total: 88.00, status: 'completed', createdAt: new Date(2026, 1, 10, 19, 0) },
+  { id: 'ORD-019', tableId: '4', tableNumber: 10, items: [{ menuItemId: '7', name: 'Bruschetta', quantity: 4, price: 10.00 }, { menuItemId: '9', name: 'Vegan Buddha Bowl', quantity: 2, price: 19.00 }], total: 78.00, status: 'completed', createdAt: new Date(2026, 1, 12, 18, 45) },
+  { id: 'ORD-020', tableId: '5', tableNumber: 2, items: [{ menuItemId: '6', name: 'Spicy Ramen', quantity: 5, price: 22.00 }], total: 110.00, status: 'completed', createdAt: new Date(2026, 1, 15, 12, 30) },
+  { id: 'ORD-021', tableId: '6', tableNumber: 8, items: [{ menuItemId: '1', name: 'Truffle Risotto', quantity: 1, price: 28.00 }, { menuItemId: '8', name: 'Craft Lemonade', quantity: 1, price: 6.00 }], total: 34.00, status: 'completed', createdAt: new Date(2026, 1, 18, 20, 0) },
+  { id: 'ORD-022', tableId: '7', tableNumber: 5, items: [{ menuItemId: '4', name: 'Wagyu Burger', quantity: 2, price: 26.00 }, { menuItemId: '5', name: 'Tiramisu', quantity: 1, price: 12.00 }], total: 64.00, status: 'completed', createdAt: new Date(2026, 1, 22, 13, 15) },
+  { id: 'ORD-023', tableId: '8', tableNumber: 12, items: [{ menuItemId: '2', name: 'Grilled Salmon', quantity: 3, price: 32.00 }], total: 96.00, status: 'completed', createdAt: new Date(2026, 1, 25, 19, 30) },
+  { id: 'ORD-024', tableId: '9', tableNumber: 3, items: [{ menuItemId: '3', name: 'Caesar Salad', quantity: 4, price: 14.00 }], total: 56.00, status: 'completed', createdAt: new Date(2026, 1, 28, 18, 0) },
+
+  // January 2026 orders
+  { id: 'ORD-025', tableId: '1', tableNumber: 7, items: [{ menuItemId: '1', name: 'Truffle Risotto', quantity: 3, price: 28.00 }, { menuItemId: '5', name: 'Tiramisu', quantity: 2, price: 12.00 }], total: 108.00, status: 'completed', createdAt: new Date(2026, 0, 5, 12, 30) },
+  { id: 'ORD-026', tableId: '2', tableNumber: 9, items: [{ menuItemId: '4', name: 'Wagyu Burger', quantity: 4, price: 26.00 }], total: 104.00, status: 'completed', createdAt: new Date(2026, 0, 8, 13, 0) },
+  { id: 'ORD-027', tableId: '3', tableNumber: 11, items: [{ menuItemId: '2', name: 'Grilled Salmon', quantity: 2, price: 32.00 }, { menuItemId: '8', name: 'Craft Lemonade', quantity: 2, price: 6.00 }], total: 76.00, status: 'completed', createdAt: new Date(2026, 0, 12, 19, 30) },
+  { id: 'ORD-028', tableId: '4', tableNumber: 4, items: [{ menuItemId: '6', name: 'Spicy Ramen', quantity: 6, price: 22.00 }], total: 132.00, status: 'completed', createdAt: new Date(2026, 0, 15, 18, 15) },
+  { id: 'ORD-029', tableId: '5', tableNumber: 6, items: [{ menuItemId: '7', name: 'Bruschetta', quantity: 3, price: 10.00 }, { menuItemId: '9', name: 'Vegan Buddha Bowl', quantity: 3, price: 19.00 }], total: 87.00, status: 'completed', createdAt: new Date(2026, 0, 18, 20, 0) },
+  { id: 'ORD-030', tableId: '6', tableNumber: 2, items: [{ menuItemId: '3', name: 'Caesar Salad', quantity: 3, price: 14.00 }, { menuItemId: '5', name: 'Tiramisu', quantity: 2, price: 12.00 }], total: 66.00, status: 'completed', createdAt: new Date(2026, 0, 22, 12, 45) },
+  { id: 'ORD-031', tableId: '7', tableNumber: 8, items: [{ menuItemId: '1', name: 'Truffle Risotto', quantity: 2, price: 28.00 }, { menuItemId: '4', name: 'Wagyu Burger', quantity: 1, price: 26.00 }], total: 82.00, status: 'completed', createdAt: new Date(2026, 0, 25, 19, 0) },
+  { id: 'ORD-032', tableId: '8', tableNumber: 10, items: [{ menuItemId: '2', name: 'Grilled Salmon', quantity: 2, price: 32.00 }], total: 64.00, status: 'completed', createdAt: new Date(2026, 0, 28, 13, 30) },
+
+  // 2025 orders (for yearly analytics)
+  { id: 'ORD-033', tableId: '1', tableNumber: 5, items: [{ menuItemId: '1', name: 'Truffle Risotto', quantity: 5, price: 28.00 }, { menuItemId: '8', name: 'Craft Lemonade', quantity: 5, price: 6.00 }], total: 170.00, status: 'completed', createdAt: new Date(2025, 11, 15, 12, 0) },
+  { id: 'ORD-034', tableId: '2', tableNumber: 8, items: [{ menuItemId: '4', name: 'Wagyu Burger', quantity: 6, price: 26.00 }, { menuItemId: '3', name: 'Caesar Salad', quantity: 4, price: 14.00 }], total: 212.00, status: 'completed', createdAt: new Date(2025, 11, 20, 13, 30) },
+  { id: 'ORD-035', tableId: '3', tableNumber: 3, items: [{ menuItemId: '2', name: 'Grilled Salmon', quantity: 4, price: 32.00 }, { menuItemId: '5', name: 'Tiramisu', quantity: 4, price: 12.00 }], total: 176.00, status: 'completed', createdAt: new Date(2025, 11, 25, 19, 0) },
+  { id: 'ORD-036', tableId: '4', tableNumber: 1, items: [{ menuItemId: '6', name: 'Spicy Ramen', quantity: 8, price: 22.00 }], total: 176.00, status: 'completed', createdAt: new Date(2025, 10, 10, 18, 0) },
+  { id: 'ORD-037', tableId: '5', tableNumber: 9, items: [{ menuItemId: '7', name: 'Bruschetta', quantity: 6, price: 10.00 }, { menuItemId: '9', name: 'Vegan Buddha Bowl', quantity: 5, price: 19.00 }], total: 155.00, status: 'completed', createdAt: new Date(2025, 10, 15, 20, 30) },
+  { id: 'ORD-038', tableId: '6', tableNumber: 7, items: [{ menuItemId: '1', name: 'Truffle Risotto', quantity: 4, price: 28.00 }, { menuItemId: '4', name: 'Wagyu Burger', quantity: 3, price: 26.00 }], total: 190.00, status: 'completed', createdAt: new Date(2025, 9, 5, 12, 15) },
+  { id: 'ORD-039', tableId: '7', tableNumber: 4, items: [{ menuItemId: '2', name: 'Grilled Salmon', quantity: 5, price: 32.00 }, { menuItemId: '8', name: 'Craft Lemonade', quantity: 5, price: 6.00 }], total: 190.00, status: 'completed', createdAt: new Date(2025, 9, 12, 19, 45) },
+  { id: 'ORD-040', tableId: '8', tableNumber: 11, items: [{ menuItemId: '3', name: 'Caesar Salad', quantity: 7, price: 14.00 }, { menuItemId: '5', name: 'Tiramisu', quantity: 5, price: 12.00 }], total: 158.00, status: 'completed', createdAt: new Date(2025, 8, 20, 13, 0) },
+  { id: 'ORD-041', tableId: '9', tableNumber: 2, items: [{ menuItemId: '6', name: 'Spicy Ramen', quantity: 10, price: 22.00 }], total: 220.00, status: 'completed', createdAt: new Date(2025, 8, 25, 18, 30) },
+  { id: 'ORD-042', tableId: '10', tableNumber: 6, items: [{ menuItemId: '7', name: 'Bruschetta', quantity: 5, price: 10.00 }, { menuItemId: '9', name: 'Vegan Buddha Bowl', quantity: 4, price: 19.00 }], total: 126.00, status: 'completed', createdAt: new Date(2025, 7, 8, 20, 0) },
+  { id: 'ORD-043', tableId: '1', tableNumber: 8, items: [{ menuItemId: '1', name: 'Truffle Risotto', quantity: 3, price: 28.00 }, { menuItemId: '2', name: 'Grilled Salmon', quantity: 3, price: 32.00 }], total: 180.00, status: 'completed', createdAt: new Date(2025, 6, 15, 12, 30) },
+  { id: 'ORD-044', tableId: '2', tableNumber: 10, items: [{ menuItemId: '4', name: 'Wagyu Burger', quantity: 8, price: 26.00 }], total: 208.00, status: 'completed', createdAt: new Date(2025, 6, 22, 13, 15) },
+  { id: 'ORD-045', tableId: '3', tableNumber: 5, items: [{ menuItemId: '3', name: 'Caesar Salad', quantity: 6, price: 14.00 }, { menuItemId: '8', name: 'Craft Lemonade', quantity: 6, price: 6.00 }], total: 120.00, status: 'completed', createdAt: new Date(2025, 5, 10, 19, 0) },
+  { id: 'ORD-046', tableId: '4', tableNumber: 12, items: [{ menuItemId: '5', name: 'Tiramisu', quantity: 8, price: 12.00 }, { menuItemId: '6', name: 'Spicy Ramen', quantity: 4, price: 22.00 }], total: 184.00, status: 'completed', createdAt: new Date(2025, 5, 18, 18, 45) },
+  { id: 'ORD-047', tableId: '5', tableNumber: 3, items: [{ menuItemId: '7', name: 'Bruschetta', quantity: 7, price: 10.00 }, { menuItemId: '9', name: 'Vegan Buddha Bowl', quantity: 6, price: 19.00 }], total: 184.00, status: 'completed', createdAt: new Date(2025, 4, 25, 20, 0) },
+  { id: 'ORD-048', tableId: '6', tableNumber: 9, items: [{ menuItemId: '1', name: 'Truffle Risotto', quantity: 4, price: 28.00 }, { menuItemId: '4', name: 'Wagyu Burger', quantity: 2, price: 26.00 }, { menuItemId: '8', name: 'Craft Lemonade', quantity: 4, price: 6.00 }], total: 200.00, status: 'completed', createdAt: new Date(2025, 3, 12, 12, 0) },
+  { id: 'ORD-049', tableId: '7', tableNumber: 1, items: [{ menuItemId: '2', name: 'Grilled Salmon', quantity: 6, price: 32.00 }, { menuItemId: '3', name: 'Caesar Salad', quantity: 3, price: 14.00 }], total: 234.00, status: 'completed', createdAt: new Date(2025, 3, 20, 13, 30) },
+  { id: 'ORD-050', tableId: '8', tableNumber: 7, items: [{ menuItemId: '6', name: 'Spicy Ramen', quantity: 12, price: 22.00 }], total: 264.00, status: 'completed', createdAt: new Date(2025, 2, 15, 19, 15) },
 ];
 
 export const tables: Table[] = [
@@ -226,10 +284,12 @@ export const menuItemRecipes: MenuItemRecipe[] = [
   { menuItemId: '2', ingredients: [{ inventoryItemId: '2', quantity: 0.25 }, { inventoryItemId: '14', quantity: 1 }, { inventoryItemId: '5', quantity: 0.05 }] },
   { menuItemId: '3', ingredients: [{ inventoryItemId: '12', quantity: 0.2 }, { inventoryItemId: '1', quantity: 0.1 }] },
   { menuItemId: '4', ingredients: [{ inventoryItemId: '3', quantity: 0.25 }, { inventoryItemId: '5', quantity: 0.03 }] },
-  { menuItemId: '5', ingredients: [{ inventoryItemId: '4', quantity: 0.05 }] },
-  { menuItemId: '6', ingredients: [{ inventoryItemId: '6', quantity: 0.3 }] },
-  { menuItemId: '7', ingredients: [{ inventoryItemId: '13', quantity: 0.15 }, { inventoryItemId: '5', quantity: 0.02 }] },
+  { menuItemId: '5', ingredients: [{ inventoryItemId: '4', quantity: 0.05 }, { inventoryItemId: '1', quantity: 0.1 }] },
+  { menuItemId: '6', ingredients: [{ inventoryItemId: '6', quantity: 0.3 }, { inventoryItemId: '14', quantity: 0.5 }] },
+  { menuItemId: '7', ingredients: [{ inventoryItemId: '13', quantity: 0.15 }, { inventoryItemId: '5', quantity: 0.02 }, { inventoryItemId: '15', quantity: 0.01 }] },
+  { menuItemId: '8', ingredients: [{ inventoryItemId: '14', quantity: 2 }, { inventoryItemId: '15', quantity: 0.02 }] },
   { menuItemId: '9', ingredients: [{ inventoryItemId: '12', quantity: 0.15 }, { inventoryItemId: '13', quantity: 0.1 }] },
+  { menuItemId: '10', ingredients: [{ inventoryItemId: '1', quantity: 0.15 }, { inventoryItemId: '4', quantity: 0.05 }, { inventoryItemId: '5', quantity: 0.02 }] },
 ];
 
 export const inventoryItems: InventoryItem[] = [
