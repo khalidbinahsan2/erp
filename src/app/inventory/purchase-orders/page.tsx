@@ -431,7 +431,7 @@ export default function PurchaseOrdersPage() {
                       }`}>{order.status}</span>
                     </td>
                     <td>
-<div style={{ display: 'flex', gap: '8px' }}>
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                       {order.status === 'pending' && (
                         <button className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '13px' }} onClick={() => {
                           const today = new Date().toISOString().split('T')[0];
@@ -471,7 +471,55 @@ export default function PurchaseOrdersPage() {
                           } : o));
                         }}>Used</button>
                       )}
+                      {order.status === 'used' && (
+                        <button className="btn btn-primary" style={{ padding: '6px 12px', fontSize: '13px' }} onClick={() => {
+                          // Create restock duplicate order
+                          const today = new Date().toISOString().split('T')[0];
+                          const restockOrder: PurchaseOrder = {
+                            id: `PO-${String(purchaseOrders.length + 1).padStart(3, '0')}`,
+                            items: order.items,
+                            total: order.total,
+                            status: 'pending',
+                            supplier: order.supplier,
+                            createdAt: today,
+                            notes: `Restock from ${order.id}`,
+                            timeline: [{ date: today, status: 'pending', notes: 'Auto restock order' }]
+                          };
+                          setPurchaseOrders([restockOrder, ...purchaseOrders]);
+                        }}>🔄 Restock</button>
+                      )}
                       <button className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '13px' }} onClick={() => { setSelectedOrder(order); setShowDetailModal(true); }}>History</button>
+                      
+                      {/* Changes Options Dropdown */}
+                      <div style={{ position: 'relative' }}>
+                        <button className="btn btn-secondary" style={{ padding: '6px 8px', fontSize: '13px' }} onClick={(e) => {
+                          e.stopPropagation();
+                          const dropdown = e.currentTarget.nextElementSibling as HTMLElement;
+                          dropdown.classList.toggle('show');
+                        }}>⋮</button>
+                        <div style={{ 
+                          position: 'absolute', 
+                          right: 0, 
+                          top: '100%', 
+                          backgroundColor: 'var(--bg-elevated)', 
+                          borderRadius: '8px', 
+                          boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                          minWidth: '140px',
+                          zIndex: 100,
+                          display: 'none',
+                          flexDirection: 'column'
+                        }} className="action-dropdown">
+                          <button style={{ padding: '10px 16px', textAlign: 'left', border: 'none', background: 'none', width: '100%', cursor: 'pointer' }} 
+                            onClick={() => alert('Edit order functionality')}>Edit Order</button>
+                          <button style={{ padding: '10px 16px', textAlign: 'left', border: 'none', background: 'none', width: '100%', cursor: 'pointer' }} 
+                            onClick={() => alert('Print order')}>Print</button>
+                          <button style={{ padding: '10px 16px', textAlign: 'left', border: 'none', background: 'none', width: '100%', cursor: 'pointer' }} 
+                            onClick={() => alert('Export PDF')}>Export PDF</button>
+                          <button style={{ padding: '10px 16px', textAlign: 'left', border: 'none', background: 'none', width: '100%', cursor: 'pointer', color: 'var(--danger)' }} 
+                            onClick={() => setPurchaseOrders(purchaseOrders.filter(o => o.id !== order.id))}>Delete</button>
+                        </div>
+                      </div>
+                      
                       {order.status !== 'received' && order.status !== 'used' && (
                         <button className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '13px', borderColor: '#ef4444', color: '#ef4444' }} onClick={() => setPurchaseOrders(purchaseOrders.map(o => o.id === order.id ? { ...o, status: 'cancelled' } : o))}>Cancel</button>
                       )}
@@ -965,6 +1013,15 @@ export default function PurchaseOrdersPage() {
           </div>
         </div>
       </div>
+
+      <style>{`
+        .action-dropdown.show {
+          display: flex !important;
+        }
+        .action-dropdown button:hover {
+          background-color: var(--bg-hover);
+        }
+      `}</style>
 
       {/* Quick Restock Modal */}
       <div className={`modal-overlay ${showQuickRestockModal ? 'active' : ''}`} onClick={() => setShowQuickRestockModal(false)}>
