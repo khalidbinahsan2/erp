@@ -397,9 +397,7 @@ export default function InventoryPage() {
               {lowStockItems.length} items low on stock
             </span>
           )}
-          <button className="btn btn-secondary" onClick={exportInventory}>Export CSV</button>
-          <button className="btn btn-secondary" onClick={openRestockModal}>Quick Restock</button>
-          <button className="btn btn-primary" onClick={openAddModal}>
+          <button className="btn btn-primary" onClick={() => { setEditingItem(null); setShowModal(true); }}>
             + Add Item
           </button>
         </div>
