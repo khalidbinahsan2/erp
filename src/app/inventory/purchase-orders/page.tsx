@@ -37,6 +37,9 @@ interface PurchaseOrder {
   supplier: string;
   createdAt: string;
   notes: string;
+  deliveryDate?: string;
+  priority?: 'low' | 'normal' | 'high' | 'urgent';
+  reference?: string;
   timeline?: OrderTimelineEvent[];
 }
 
@@ -269,16 +272,30 @@ export default function PurchaseOrdersPage() {
 
   const createOrder = () => {
     if (!newOrder.supplier || newOrder.items.length === 0) return;
-    const total = newOrder.items.reduce((sum, item) => sum + item.quantity * item.cost, 0);
+    const subtotal = newOrder.items.reduce((sum, item) => sum + item.quantity * item.cost, 0);
+    const shippingCost = newOrder.shippingCost || 0;
+    const taxAmount = subtotal * ((newOrder.taxRate || 0) / 100);
+    const discountAmount = subtotal * ((newOrder.discount || 0) / 100);
+    const total = subtotal + shippingCost + taxAmount - discountAmount;
     const today = new Date().toISOString().split('T')[0];
+    
     const order: PurchaseOrder = {
       id: `PO-${String(purchaseOrders.length + 1).padStart(3, '0')}`,
       items: newOrder.items,
+      subtotal,
+      shippingCost,
+      taxRate: newOrder.taxRate,
+      taxAmount,
+      discount: newOrder.discount,
+      discountAmount,
       total,
       status: 'pending',
       supplier: newOrder.supplier,
       createdAt: today,
       notes: newOrder.notes,
+      deliveryDate: newOrder.deliveryDate,
+      priority: newOrder.priority,
+      reference: newOrder.reference,
       timeline: [{ date: today, status: 'pending', notes: newOrder.notes || 'Order created' }]
     };
     setPurchaseOrders([order, ...purchaseOrders]);
