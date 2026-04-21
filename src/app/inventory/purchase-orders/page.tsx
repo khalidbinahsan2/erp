@@ -12,7 +12,7 @@ interface PurchaseOrder {
   id: string;
   items: { itemId: string; name: string; quantity: number; cost: number }[];
   total: number;
-  status: 'pending' | 'ordered' | 'received' | 'cancelled';
+  status: 'pending' | 'ordered' | 'received' | 'used' | 'cancelled';
   supplier: string;
   createdAt: string;
   notes: string;
@@ -248,6 +248,10 @@ export default function PurchaseOrdersPage() {
               <div className="stat-label">Received</div>
               <div className="mono" style={{ fontSize: '14px', marginTop: '8px' }}>{formatCurrency(receivedTotal)}</div>
             </div>
+            <div className="stat-card" style={{ background: 'var(--warning)' }}>
+              <div className="stat-value" style={{ fontSize: '32px' }}>{purchaseOrders.filter(o => o.status === 'used').length}</div>
+              <div className="stat-label">Used</div>
+            </div>
             <div className="stat-card" style={{ background: 'var(--danger)' }}>
               <div className="stat-value" style={{ fontSize: '32px' }}>{purchaseOrders.filter(o => o.status === 'cancelled').length}</div>
               <div className="stat-label">Cancelled</div>
@@ -261,6 +265,7 @@ export default function PurchaseOrdersPage() {
               <option value="pending">Pending</option>
               <option value="ordered">Ordered</option>
               <option value="received">Received</option>
+              <option value="used">Used</option>
               <option value="cancelled">Cancelled</option>
             </select>
             <select className="form-select" style={{ width: '180px' }} value={supplierFilter} onChange={e => setSupplierFilter(e.target.value)}>
@@ -279,6 +284,7 @@ export default function PurchaseOrdersPage() {
                   <th>Items</th>
                   <th>Total</th>
                   <th>Status</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -299,8 +305,30 @@ export default function PurchaseOrdersPage() {
                       <span className={`badge ${
                         order.status === 'pending' ? 'badge-pending' :
                         order.status === 'ordered' ? 'badge-in_progress' :
-                        order.status === 'received' ? 'badge-available' : 'badge-cancelled'
+                        order.status === 'received' ? 'badge-available' :
+                        order.status === 'used' ? 'badge-warning' : 'badge-cancelled'
                       }`}>{order.status}</span>
+                    </td>
+                    <td>
+                      <div style={{ display: 'flex', gap: '4px' }}>
+                        {order.status === 'pending' && (
+                          <button className="action-btn" onClick={() => setPurchaseOrders(purchaseOrders.map(o => o.id === order.id ? { ...o, status: 'ordered' } : o))}>Order</button>
+                        )}
+                        {order.status === 'ordered' && (
+                          <button className="action-btn" onClick={() => setPurchaseOrders(purchaseOrders.map(o => o.id === order.id ? { ...o, status: 'received' } : o))}>Receive</button>
+                        )}
+                        {order.status === 'received' && (
+                          <>
+                            <button className="action-btn edit" onClick={() => {
+                              setPurchaseOrders(purchaseOrders.map(o => o.id === order.id ? { ...o, status: 'used' } : o));
+                            }}>Used</button>
+                          </>
+                        )}
+                        <button className="action-btn" style={{ color: 'var(--text-muted)' }} onClick={() => { setSelectedOrder(order); setShowDetailModal(true); }}>View</button>
+                        {order.status !== 'received' && order.status !== 'used' && (
+                          <button className="action-btn" style={{ color: 'var(--danger)' }} onClick={() => setPurchaseOrders(purchaseOrders.map(o => o.id === order.id ? { ...o, status: 'cancelled' } : o))}>Cancel</button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
