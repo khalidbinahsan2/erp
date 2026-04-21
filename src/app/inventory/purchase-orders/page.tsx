@@ -149,7 +149,13 @@ export default function PurchaseOrdersPage() {
   const [newOrder, setNewOrder] = useState({
     supplier: '',
     items: [] as { itemId: string; name: string; quantity: number; cost: number }[],
-    notes: ''
+    notes: '',
+    deliveryDate: '',
+    priority: 'normal' as 'low' | 'normal' | 'high' | 'urgent',
+    reference: '',
+    shippingCost: 0,
+    taxRate: 0,
+    discount: 0,
   });
   const [selectedItem, setSelectedItem] = useState('');
   const [itemQty, setItemQty] = useState(1);
@@ -188,7 +194,17 @@ export default function PurchaseOrdersPage() {
     };
     setPurchaseOrders([order, ...purchaseOrders]);
     setShowCreateModal(false);
-    setNewOrder({ supplier: '', items: [], notes: '' });
+    setNewOrder({ 
+      supplier: '', 
+      items: [], 
+      notes: '', 
+      deliveryDate: '', 
+      priority: 'normal', 
+      reference: '', 
+      shippingCost: 0, 
+      taxRate: 0, 
+      discount: 0 
+    });
   };
 
   // Calculate monthly purchases
@@ -678,20 +694,62 @@ export default function PurchaseOrdersPage() {
         </>
       )}
 
-      {/* Create Order Modal */}
+      {/* Create Order Modal (Advanced) */}
       <div className={`modal-overlay ${showCreateModal ? 'active' : ''}`} onClick={() => setShowCreateModal(false)}>
-        <div className="modal" style={{ maxWidth: '600px' }} onClick={e => e.stopPropagation()}>
+        <div className="modal" style={{ maxWidth: '850px', maxHeight: '90vh', overflow: 'auto' }} onClick={e => e.stopPropagation()}>
           <div className="modal-header">
-            <h2 className="modal-title">Create Purchase Order</h2>
+            <h2 className="modal-title">Create Purchase Order (Advanced)</h2>
             <button className="modal-close" onClick={() => setShowCreateModal(false)}>×</button>
           </div>
           <div className="modal-body">
-            <div className="form-group">
-              <label className="form-label">Supplier</label>
-              <select className="form-select" value={newOrder.supplier} onChange={e => setNewOrder({ ...newOrder, supplier: e.target.value })}>
-                <option value="">Select Supplier</option>
-                {suppliers.map(s => <option key={s} value={s}>{s}</option>)}
-              </select>
+            
+            {/* Low Stock Alert Section */}
+            <div style={{ backgroundColor: '#fff3cd', border: '1px solid #ffeaa7', borderRadius: '8px', padding: '16px', marginBottom: '20px' }}>
+              <div style={{ fontWeight: '600', marginBottom: '8px', color: '#d39e00' }}>⚠️ Items Below Reorder Level</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px', maxHeight: '100px', overflowY: 'auto' }}>
+                {items.filter(i => i.quantity <= i.reorderLevel).map(item => (
+                  <div 
+                    key={item.id} 
+                    onClick={() => { setSelectedItem(item.id); setItemQty(Math.max(10, item.reorderLevel - item.quantity)); }}
+                    style={{ padding: '6px 10px', borderRadius: '4px', backgroundColor: 'white', cursor: 'pointer', fontSize: '13px' }}
+                  >
+                    <div style={{ fontWeight: '500' }}>{item.name}</div>
+                    <div style={{ fontSize: '11px', color: '#666' }}>Stock: {item.quantity} | Reorder: +{Math.max(0, item.reorderLevel - item.quantity)}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid-2">
+              <div className="form-group">
+                <label className="form-label">Supplier *</label>
+                <select className="form-select" value={newOrder.supplier} onChange={e => setNewOrder({ ...newOrder, supplier: e.target.value })}>
+                  <option value="">Select Supplier</option>
+                  {suppliers.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+              
+              <div className="form-group">
+                <label className="form-label">Expected Delivery</label>
+                <input className="form-input" type="date" value={newOrder.deliveryDate || ''} onChange={e => setNewOrder({ ...newOrder, deliveryDate: e.target.value })} />
+              </div>
+            </div>
+
+            <div className="grid-2">
+              <div className="form-group">
+                <label className="form-label">Priority</label>
+                <select className="form-select" value={newOrder.priority || 'normal'} onChange={e => setNewOrder({ ...newOrder, priority: e.target.value as any })}>
+                  <option value="low">Low</option>
+                  <option value="normal">Normal</option>
+                  <option value="high">High</option>
+                  <option value="urgent">Urgent</option>
+                </select>
+              </div>
+              
+              <div className="form-group">
+                <label className="form-label">Reference Number</label>
+                <input className="form-input" placeholder="Supplier PO # / Reference" value={newOrder.reference || ''} onChange={e => setNewOrder({ ...newOrder, reference: e.target.value })} />
+              </div>
             </div>
 
             <div className="form-group">
@@ -699,46 +757,112 @@ export default function PurchaseOrdersPage() {
               <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
                 <select className="form-select" style={{ flex: 2 }} value={selectedItem} onChange={e => setSelectedItem(e.target.value)}>
                   <option value="">Select Item</option>
-                  {items.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
+                  {items.map(i => <option key={i.id} value={i.id}>{i.name} (Stock: {i.quantity})</option>)}
                 </select>
                 <input className="form-input" type="number" min="1" style={{ flex: 1 }} placeholder="Qty" value={itemQty} onChange={e => setItemQty(parseInt(e.target.value) || 1)} />
-                <input className="form-input" type="number" step="0.01" style={{ flex: 1 }} placeholder="Cost" value={itemCost} onChange={e => setItemCost(parseFloat(e.target.value) || 0)} />
-                <button className="btn btn-secondary" onClick={addItemToOrder}>Add</button>
+                <input className="form-input" type="number" step="0.01" style={{ flex: 1 }} placeholder="Unit Cost" value={itemCost} onChange={e => setItemCost(parseFloat(e.target.value) || 0)} />
+                <button className="btn btn-primary" onClick={addItemToOrder}>+ Add</button>
               </div>
 
               {newOrder.items.length > 0 && (
                 <div style={{ marginTop: '12px' }}>
                   <table className="data-table">
                     <thead>
-                      <tr><th>Item</th><th>Qty</th><th>Cost</th><th>Total</th><th></th></tr>
+                      <tr><th>Item</th><th>Qty</th><th>Unit Cost</th><th>Subtotal</th><th></th></tr>
                     </thead>
                     <tbody>
                       {newOrder.items.map((item, idx) => (
                         <tr key={idx}>
                           <td>{item.name}</td>
-                          <td className="mono">{item.quantity}</td>
+                          <td>
+                            <input 
+                              type="number" 
+                              min="1" 
+                              value={item.quantity}
+                              onChange={e => {
+                                const qty = parseInt(e.target.value) || 1;
+                                setNewOrder({ ...newOrder, items: newOrder.items.map((it, i) => i === idx ? { ...it, quantity: qty } : it) });
+                              }}
+                              style={{ width: '70px' }}
+                              className="form-input"
+                            />
+                          </td>
                           <td className="mono">{formatCurrency(item.cost)}</td>
                           <td className="mono" style={{ fontWeight: '600' }}>{formatCurrency(item.quantity * item.cost)}</td>
-                          <td><button className="action-btn" style={{ color: 'var(--danger)' }} onClick={() => removeItem(idx)}>×</button></td>
+                          <td><button className="action-btn" style={{ color: 'var(--danger)' }} onClick={() => removeItem(idx)}>✕</button></td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
-                  <div style={{ textAlign: 'right', marginTop: '8px', fontWeight: '600' }}>
-                    Total: {formatCurrency(newOrder.items.reduce((sum, item) => sum + item.quantity * item.cost, 0))}
+
+                  <div style={{ marginTop: '16px', padding: '16px', backgroundColor: 'var(--bg-elevated)', borderRadius: '8px' }}>
+                    <div className="grid-3">
+                      <div className="form-group" style={{ margin: 0 }}>
+                        <label className="form-label">Shipping Cost</label>
+                        <input className="form-input" type="number" step="0.01" placeholder="0.00" value={newOrder.shippingCost || ''} onChange={e => setNewOrder({ ...newOrder, shippingCost: parseFloat(e.target.value) || 0 })} />
+                      </div>
+                      <div className="form-group" style={{ margin: 0 }}>
+                        <label className="form-label">Tax (%)</label>
+                        <input className="form-input" type="number" step="0.1" placeholder="0" value={newOrder.taxRate || ''} onChange={e => setNewOrder({ ...newOrder, taxRate: parseFloat(e.target.value) || 0 })} />
+                      </div>
+                      <div className="form-group" style={{ margin: 0 }}>
+                        <label className="form-label">Discount (%)</label>
+                        <input className="form-input" type="number" step="0.1" placeholder="0" value={newOrder.discount || ''} onChange={e => setNewOrder({ ...newOrder, discount: parseFloat(e.target.value) || 0 })} />
+                      </div>
+                    </div>
+                    
+                    <div style={{ marginTop: '16px', textAlign: 'right' }}>
+                      <div style={{ fontSize: '14px', color: 'var(--text-muted)', marginBottom: '4px' }}>
+                        Subtotal: {formatCurrency(newOrder.items.reduce((sum, item) => sum + item.quantity * item.cost, 0))}
+                      </div>
+                      <div style={{ fontSize: '20px', fontWeight: '700' }}>
+                        Order Total: {formatCurrency(
+                          newOrder.items.reduce((sum, item) => sum + item.quantity * item.cost, 0) 
+                          + (newOrder.shippingCost || 0) 
+                          + (newOrder.items.reduce((sum, item) => sum + item.quantity * item.cost, 0) * ((newOrder.taxRate || 0) / 100))
+                          - (newOrder.items.reduce((sum, item) => sum + item.quantity * item.cost, 0) * ((newOrder.discount || 0) / 100))
+                        )}
+                      </div>
+                    </div>
                   </div>
                 </div>
               )}
             </div>
 
             <div className="form-group">
-              <label className="form-label">Notes</label>
-              <textarea className="form-input" rows={2} value={newOrder.notes} onChange={e => setNewOrder({ ...newOrder, notes: e.target.value })} placeholder="Optional notes..." />
+              <label className="form-label">Notes / Instructions</label>
+              <textarea className="form-input" rows={3} value={newOrder.notes} onChange={e => setNewOrder({ ...newOrder, notes: e.target.value })} placeholder="Internal notes, delivery instructions, terms..." />
             </div>
+
+            <div className="form-group">
+              <label className="form-label">Attachments</label>
+              <div style={{ border: '2px dashed var(--border)', borderRadius: '8px', padding: '20px', textAlign: 'center', cursor: 'pointer' }}>
+                <div style={{ fontSize: '24px', marginBottom: '8px' }}>📎</div>
+                <div style={{ fontSize: '14px', color: 'var(--text-muted)' }}>Click to attach documents (invoice, quotes)</div>
+              </div>
+            </div>
+            
           </div>
-          <div className="modal-footer">
-            <button className="btn btn-secondary" onClick={() => setShowCreateModal(false)}>Cancel</button>
-            <button className="btn btn-primary" onClick={createOrder} disabled={!newOrder.supplier || newOrder.items.length === 0}>Create Order</button>
+          <div className="modal-footer" style={{ justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button className="btn btn-secondary" onClick={() => setShowCreateModal(false)}>Cancel</button>
+              <button className="btn btn-secondary" onClick={() => { 
+              setNewOrder({ 
+                supplier: '', 
+                items: [], 
+                notes: '', 
+                deliveryDate: '', 
+                priority: 'normal', 
+                reference: '', 
+                shippingCost: 0, 
+                taxRate: 0, 
+                discount: 0 
+              }); 
+            }}>Reset</button>
+            </div>
+            <button className="btn btn-primary" onClick={createOrder} disabled={!newOrder.supplier || newOrder.items.length === 0}>
+              Create Purchase Order
+            </button>
           </div>
         </div>
       </div>
