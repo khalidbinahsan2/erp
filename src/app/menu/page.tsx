@@ -27,6 +27,13 @@ function calculateItemCost(menuItemId: string): number {
   }, 0);
 }
 
+function calculateIngredientsCost(ingredients: { inventoryItemId: string; quantity: number }[]): number {
+  return ingredients.reduce((cost, ing) => {
+    const invItem = inventoryItems.find(i => i.id === ing.inventoryItemId);
+    return cost + (invItem ? invItem.costPerUnit * ing.quantity : 0);
+  }, 0);
+}
+
 export default function MenuPage() {
   const [menuItems, setMenuItems] = useState<MenuItem[]>(initialMenuItems);
   const [categoryFilter, setCategoryFilter] = useState<string>('All');
@@ -50,7 +57,8 @@ export default function MenuPage() {
     image: '',
     dietary: [] as string[],
     costPerUnit: '',
-    profitPerUnit: ''
+    profitPerUnit: '',
+    ingredients: [] as { inventoryItemId: string; quantity: number }[]
   });
 
   const filteredItems = useMemo(() => {
@@ -100,11 +108,23 @@ export default function MenuPage() {
 
   const openAddModal = useCallback(() => {
     setEditingItem(null);
-    setFormData({ name: '', description: '', category: 'Main Courses', price: '', prepTime: '', image: '', dietary: [], costPerUnit: '', profitPerUnit: '' });
+    setFormData({ 
+      name: '', 
+      description: '', 
+      category: 'Main Courses', 
+      price: '', 
+      prepTime: '', 
+      image: '', 
+      dietary: [], 
+      costPerUnit: '', 
+      profitPerUnit: '',
+      ingredients: []
+    });
     setShowModal(true);
   }, []);
 
   const openEditModal = useCallback((item: MenuItem) => {
+    const existingRecipe = menuItemRecipes.find(r => r.menuItemId === item.id);
     const itemCost = calculateItemCost(item.id);
     setEditingItem(item);
     setFormData({
@@ -116,7 +136,8 @@ export default function MenuPage() {
       image: item.image,
       dietary: item.dietary || [],
       costPerUnit: item.costPerUnit?.toString() || itemCost.toString(),
-      profitPerUnit: item.profitPerUnit?.toString() || (item.price - itemCost).toString()
+      profitPerUnit: item.profitPerUnit?.toString() || (item.price - itemCost).toString(),
+      ingredients: existingRecipe ? [...existingRecipe.ingredients] : []
     });
     setShowModal(true);
   }, []);
@@ -147,10 +168,11 @@ export default function MenuPage() {
   const saveItem = useCallback(() => {
     if (!formData.name || !formData.price) return;
     
+    const calculatedCost = calculateIngredientsCost(formData.ingredients);
+    const costPerUnit = formData.costPerUnit ? parseFloat(formData.costPerUnit) : calculatedCost;
+    const profitPerUnit = formData.profitPerUnit ? parseFloat(formData.profitPerUnit) : (parseFloat(formData.price) - costPerUnit);
+    
     if (editingItem) {
-      const costPerUnit = formData.costPerUnit ? parseFloat(formData.costPerUnit) : calculateItemCost(editingItem.id);
-      const profitPerUnit = formData.profitPerUnit ? parseFloat(formData.profitPerUnit) : (parseFloat(formData.price) - costPerUnit);
-      
       setMenuItems(menuItems.map(m => m.id === editingItem.id ? {
         ...m,
         name: formData.name,
@@ -164,9 +186,6 @@ export default function MenuPage() {
         profitPerUnit
       } : m));
     } else {
-      const costPerUnit = formData.costPerUnit ? parseFloat(formData.costPerUnit) : 0;
-      const profitPerUnit = formData.profitPerUnit ? parseFloat(formData.profitPerUnit) : (parseFloat(formData.price) - costPerUnit);
-      
       const newItem: MenuItem = {
         id: String(menuItems.length + 1),
         name: formData.name,
@@ -417,22 +436,27 @@ export default function MenuPage() {
                   ))}
                 </select>
               </div>
-              <div className="form-group">
-                <label className="form-label">Sale Price</label>
-                <input className="form-input" type="number" step="0.01" value={formData.price} onChange={e => setFormData({ ...formData, price: e.target.value })} placeholder="0.00" />
-              </div>
+               <div className="form-group">
+                 <label className="form-label">Sale Price</label>
+                 <input 
+                   className="form-input" 
+                   type="number" 
+                   step="0.01" 
+                   value={formData.price} 
+                   onChange={e => {
+                     const calculatedCost = calculateIngredientsCost(formData.ingredients);
+                     const newPrice = parseFloat(e.target.value) || 0;
+                     setFormData({ 
+                       ...formData, 
+                       price: e.target.value,
+                       profitPerUnit: (newPrice - calculatedCost).toString()
+                     });
+                   }} 
+                   placeholder="0.00" 
+                 />
+               </div>
             </div>
-            <div className="grid-2">
-              <div className="form-group">
-                <label className="form-label">Cost per Unit</label>
-                <input className="form-input" type="number" step="0.01" value={formData.costPerUnit} onChange={e => setFormData({ ...formData, costPerUnit: e.target.value })} placeholder="0.00" />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Profit per Unit</label>
-                <input className="form-input" type="number" step="0.01" value={formData.profitPerUnit} onChange={e => setFormData({ ...formData, profitPerUnit: e.target.value })} placeholder="0.00" />
-              </div>
-            </div>
-            <div className="grid-2">
+             <div className="grid-2">
               <div className="form-group">
                 <label className="form-label">Prep Time (min)</label>
                 <input className="form-input" type="number" value={formData.prepTime} onChange={e => setFormData({ ...formData, prepTime: e.target.value })} placeholder="15" />
@@ -441,7 +465,110 @@ export default function MenuPage() {
                 <label className="form-label">Image URL</label>
                 <input className="form-input" value={formData.image} onChange={e => setFormData({ ...formData, image: e.target.value })} placeholder="https://..." />
               </div>
-             </div>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Ingredients</label>
+                <div className="data-card" style={{ marginBottom: '12px', padding: '12px' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 40px', gap: '8px', fontWeight: 500, fontSize: '12px', color: 'var(--text-muted)', marginBottom: '8px' }}>
+                    <span>Item</span>
+                    <span>Quantity</span>
+                    <span>Cost</span>
+                    <span></span>
+                  </div>
+                  {formData.ingredients.map((ing, idx) => {
+                    const invItem = inventoryItems.find(i => i.id === ing.inventoryItemId);
+                    const itemCost = invItem ? invItem.costPerUnit * ing.quantity : 0;
+                    return (
+                      <div key={idx} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 40px', gap: '8px', alignItems: 'center', marginBottom: '8px' }}>
+                        <span style={{ fontSize: '14px' }}>{invItem?.name || 'Unknown'}</span>
+                        <input 
+                          type="number"
+                          step="0.01"
+                          className="form-input"
+                          value={ing.quantity}
+                          onChange={(e) => {
+                            const newIngredients = [...formData.ingredients];
+                            newIngredients[idx].quantity = parseFloat(e.target.value) || 0;
+                            const newCost = calculateIngredientsCost(newIngredients);
+                            setFormData({ 
+                              ...formData, 
+                              ingredients: newIngredients,
+                              costPerUnit: newCost.toString(),
+                              profitPerUnit: (parseFloat(formData.price) - newCost).toString()
+                            });
+                          }}
+                        />
+                        <span style={{ fontSize: '14px', fontFamily: 'monospace' }}>{formatCurrency(itemCost)}</span>
+                        <button 
+                          className="action-btn" 
+                          style={{ color: 'var(--danger)', padding: 0 }}
+                          onClick={() => {
+                            const newIngredients = formData.ingredients.filter((_, i) => i !== idx);
+                            const newCost = calculateIngredientsCost(newIngredients);
+                            setFormData({ 
+                              ...formData, 
+                              ingredients: newIngredients,
+                              costPerUnit: newCost.toString(),
+                              profitPerUnit: (parseFloat(formData.price) - newCost).toString()
+                            });
+                          }}
+                        >×</button>
+                      </div>
+                    );
+                  })}
+                  <div style={{ marginTop: '12px' }}>
+                    <select 
+                      className="form-select"
+                      value=""
+                      onChange={(e) => {
+                        if (e.target.value) {
+                          const newIngredients = [...formData.ingredients, { inventoryItemId: e.target.value, quantity: 1 }];
+                          const newCost = calculateIngredientsCost(newIngredients);
+                          setFormData({ 
+                            ...formData, 
+                            ingredients: newIngredients,
+                            costPerUnit: newCost.toString(),
+                            profitPerUnit: (parseFloat(formData.price) - newCost).toString()
+                          });
+                          e.target.value = '';
+                        }
+                      }}
+                    >
+                      <option value="">Add ingredient...</option>
+                      {inventoryItems
+                        .filter(item => item.category === 'Ingredients')
+                        .filter(item => !formData.ingredients.some(i => i.inventoryItemId === item.id))
+                        .map(item => (
+                          <option key={item.id} value={item.id}>{item.name} ({formatCurrency(item.costPerUnit)}/{item.unit})</option>
+                        ))}
+                    </select>
+                  </div>
+                </div>
+                
+                <div style={{ background: 'var(--bg-secondary)', padding: '12px', borderRadius: '6px', marginBottom: '16px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontWeight: 500 }}>Calculated Total Cost:</span>
+                    <span style={{ fontFamily: 'monospace', fontSize: '16px', fontWeight: 600 }}>
+                      {formatCurrency(calculateIngredientsCost(formData.ingredients))}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                    Cost is automatically calculated from selected ingredients. You may override manually below.
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid-2">
+                <div className="form-group">
+                  <label className="form-label">Cost per Unit</label>
+                  <input className="form-input" type="number" step="0.01" value={formData.costPerUnit} onChange={e => setFormData({ ...formData, costPerUnit: e.target.value })} placeholder="0.00" />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Profit per Unit</label>
+                  <input className="form-input" type="number" step="0.01" value={formData.profitPerUnit} onChange={e => setFormData({ ...formData, profitPerUnit: e.target.value })} placeholder="0.00" />
+                </div>
+              </div>
 
              <div className="form-group">
                <label className="form-label">Dietary Tags</label>
