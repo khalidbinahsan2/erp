@@ -1,8 +1,17 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { menuItems as initialMenuItems, categories, inventoryItems, menuItemRecipes } from '@/lib/mockData';
 import { MenuItem } from '@/types';
+
+const dietaryOptions = ['Vegetarian', 'Vegan', 'Gluten-Free', 'Dairy-Free', 'Nut-Free', 'Halal', 'Kosher'];
+const sortOptions = [
+  { value: 'name', label: 'Name' },
+  { value: 'price', label: 'Price' },
+  { value: 'cost', label: 'Cost' },
+  { value: 'margin', label: 'Margin' },
+  { value: 'prepTime', label: 'Prep Time' }
+];
 
 function formatCurrency(value: number): string {
   return `$${value.toFixed(2)}`;
@@ -20,9 +29,16 @@ function calculateItemCost(menuItemId: string): number {
 
 export default function MenuPage() {
   const [menuItems, setMenuItems] = useState<MenuItem[]>(initialMenuItems);
-  const [filter, setFilter] = useState<string>('All');
+  const [categoryFilter, setCategoryFilter] = useState<string>('All');
+  const [dietaryFilter, setDietaryFilter] = useState<string>('All');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortBy, setSortBy] = useState<string>('name');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
   const [showModal, setShowModal] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [editingItem, setEditingItem] = useState<MenuItem | null>(null);
+  const [deletingItemId, setDeletingItemId] = useState<string | null>(null);
+  const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
 
   const [formData, setFormData] = useState({
@@ -37,15 +53,58 @@ export default function MenuPage() {
     profitPerUnit: ''
   });
 
-  const filteredItems = filter === 'All' ? menuItems : menuItems.filter(m => m.category === filter);
+  const filteredItems = useMemo(() => {
+    let items = [...menuItems];
 
-  const openAddModal = () => {
+    // Search filter
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      items = items.filter(item => 
+        item.name.toLowerCase().includes(query) || 
+        item.description.toLowerCase().includes(query)
+      );
+    }
+
+    // Category filter
+    if (categoryFilter !== 'All') {
+      items = items.filter(m => m.category === categoryFilter);
+    }
+
+    // Dietary filter
+    if (dietaryFilter !== 'All') {
+      items = items.filter(m => m.dietary?.includes(dietaryFilter));
+    }
+
+    // Sorting
+    items.sort((a, b) => {
+      const costA = a.costPerUnit || calculateItemCost(a.id);
+      const costB = b.costPerUnit || calculateItemCost(b.id);
+      const profitA = a.profitPerUnit || (a.price - costA);
+      const profitB = b.profitPerUnit || (b.price - costB);
+      const marginA = a.price > 0 ? (profitA / a.price) * 100 : 0;
+      const marginB = b.price > 0 ? (profitB / b.price) * 100 : 0;
+
+      let comparison = 0;
+      switch (sortBy) {
+        case 'name': comparison = a.name.localeCompare(b.name); break;
+        case 'price': comparison = a.price - b.price; break;
+        case 'cost': comparison = costA - costB; break;
+        case 'margin': comparison = marginA - marginB; break;
+        case 'prepTime': comparison = a.prepTime - b.prepTime; break;
+      }
+      return sortDirection === 'asc' ? comparison : -comparison;
+    });
+
+    return items;
+  }, [menuItems, searchQuery, categoryFilter, dietaryFilter, sortBy, sortDirection]);
+
+  const openAddModal = useCallback(() => {
     setEditingItem(null);
     setFormData({ name: '', description: '', category: 'Main Courses', price: '', prepTime: '', image: '', dietary: [], costPerUnit: '', profitPerUnit: '' });
     setShowModal(true);
-  };
+  }, []);
 
-  const openEditModal = (item: MenuItem) => {
+  const openEditModal = useCallback((item: MenuItem) => {
     const itemCost = calculateItemCost(item.id);
     setEditingItem(item);
     setFormData({
@@ -55,19 +114,43 @@ export default function MenuPage() {
       price: item.price.toString(),
       prepTime: item.prepTime.toString(),
       image: item.image,
-      dietary: item.dietary,
+      dietary: item.dietary || [],
       costPerUnit: item.costPerUnit?.toString() || itemCost.toString(),
       profitPerUnit: item.profitPerUnit?.toString() || (item.price - itemCost).toString()
     });
     setShowModal(true);
-  };
+  }, []);
 
-  const saveItem = () => {
+  const duplicateItem = useCallback((item: MenuItem) => {
+    const newItem: MenuItem = {
+      ...item,
+      id: String(menuItems.length + 1),
+      name: `${item.name} (Copy)`,
+      available: true
+    };
+    setMenuItems([...menuItems, newItem]);
+  }, [menuItems]);
+
+  const deleteItem = useCallback((itemId: string) => {
+    setDeletingItemId(itemId);
+    setShowDeleteConfirm(true);
+  }, []);
+
+  const confirmDelete = useCallback(() => {
+    if (deletingItemId) {
+      setMenuItems(menuItems.filter(m => m.id !== deletingItemId));
+    }
+    setShowDeleteConfirm(false);
+    setDeletingItemId(null);
+  }, [menuItems, deletingItemId]);
+
+  const saveItem = useCallback(() => {
     if (!formData.name || !formData.price) return;
-    const costPerUnit = formData.costPerUnit ? parseFloat(formData.costPerUnit) : calculateItemCost('1');
-    const profitPerUnit = formData.profitPerUnit ? parseFloat(formData.profitPerUnit) : (parseFloat(formData.price) - costPerUnit);
     
     if (editingItem) {
+      const costPerUnit = formData.costPerUnit ? parseFloat(formData.costPerUnit) : calculateItemCost(editingItem.id);
+      const profitPerUnit = formData.profitPerUnit ? parseFloat(formData.profitPerUnit) : (parseFloat(formData.price) - costPerUnit);
+      
       setMenuItems(menuItems.map(m => m.id === editingItem.id ? {
         ...m,
         name: formData.name,
@@ -76,10 +159,14 @@ export default function MenuPage() {
         price: parseFloat(formData.price),
         prepTime: parseInt(formData.prepTime) || 15,
         image: formData.image,
-        costPerUnit: formData.costPerUnit ? parseFloat(formData.costPerUnit) : calculateItemCost(m.id),
-        profitPerUnit: formData.profitPerUnit ? parseFloat(formData.profitPerUnit) : (parseFloat(formData.price) - (formData.costPerUnit ? parseFloat(formData.costPerUnit) : calculateItemCost(m.id)))
+        dietary: formData.dietary,
+        costPerUnit,
+        profitPerUnit
       } : m));
     } else {
+      const costPerUnit = formData.costPerUnit ? parseFloat(formData.costPerUnit) : 0;
+      const profitPerUnit = formData.profitPerUnit ? parseFloat(formData.profitPerUnit) : (parseFloat(formData.price) - costPerUnit);
+      
       const newItem: MenuItem = {
         id: String(menuItems.length + 1),
         name: formData.name,
@@ -90,17 +177,49 @@ export default function MenuPage() {
         available: true,
         image: formData.image || 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=300&h=200&fit=crop',
         dietary: formData.dietary,
-        costPerUnit: formData.costPerUnit ? parseFloat(formData.costPerUnit) : 0,
-        profitPerUnit: formData.profitPerUnit ? parseFloat(formData.profitPerUnit) : 0
+        costPerUnit,
+        profitPerUnit
       };
       setMenuItems([...menuItems, newItem]);
     }
     setShowModal(false);
-  };
+  }, [formData, editingItem, menuItems]);
 
-  const toggleAvailability = (itemId: string) => {
+  const toggleAvailability = useCallback((itemId: string) => {
     setMenuItems(menuItems.map(m => m.id === itemId ? { ...m, available: !m.available } : m));
-  };
+  }, [menuItems]);
+
+  const toggleItemSelection = useCallback((itemId: string) => {
+    setSelectedItems(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(itemId)) {
+        newSet.delete(itemId);
+      } else {
+        newSet.add(itemId);
+      }
+      return newSet;
+    });
+  }, []);
+
+  const selectAllItems = useCallback(() => {
+    if (selectedItems.size === filteredItems.length) {
+      setSelectedItems(new Set());
+    } else {
+      setSelectedItems(new Set(filteredItems.map(i => i.id)));
+    }
+  }, [filteredItems, selectedItems.size]);
+
+  const bulkToggleAvailability = useCallback(() => {
+    setMenuItems(menuItems.map(m => 
+      selectedItems.has(m.id) ? { ...m, available: !m.available } : m
+    ));
+    setSelectedItems(new Set());
+  }, [menuItems, selectedItems]);
+
+  const bulkDelete = useCallback(() => {
+    setMenuItems(menuItems.filter(m => !selectedItems.has(m.id)));
+    setSelectedItems(new Set());
+  }, [menuItems, selectedItems]);
 
   return (
     <>
@@ -111,15 +230,53 @@ export default function MenuPage() {
         </button>
       </div>
 
+      <div style={{ marginBottom: '16px' }}>
+        <input 
+          className="form-input" 
+          placeholder="Search menu items..." 
+          value={searchQuery}
+          onChange={e => setSearchQuery(e.target.value)}
+          style={{ maxWidth: '400px', marginBottom: '16px' }}
+        />
+      </div>
+
       <div className="filter-bar">
-        <button className={`filter-btn ${filter === 'All' ? 'active' : ''}`} onClick={() => setFilter('All')}>All</button>
+        <button className={`filter-btn ${categoryFilter === 'All' ? 'active' : ''}`} onClick={() => setCategoryFilter('All')}>All</button>
         {categories.map(cat => (
-          <button key={cat} className={`filter-btn ${filter === cat ? 'active' : ''}`} onClick={() => setFilter(cat)}>{cat}</button>
+          <button key={cat} className={`filter-btn ${categoryFilter === cat ? 'active' : ''}`} onClick={() => setCategoryFilter(cat)}>{cat}</button>
+        ))}
+        <div style={{ margin: '0 16px', height: '24px', borderLeft: '1px solid var(--border)' }} />
+        <button className={`filter-btn ${dietaryFilter === 'All' ? 'active' : ''}`} onClick={() => setDietaryFilter('All')}>All Dietary</button>
+        {dietaryOptions.map(diet => (
+          <button key={diet} className={`filter-btn ${dietaryFilter === diet ? 'active' : ''}`} onClick={() => setDietaryFilter(diet)}>{diet}</button>
         ))}
         <div style={{ flex: 1 }} />
+        <select 
+          className="form-select" 
+          value={sortBy} 
+          onChange={e => setSortBy(e.target.value)}
+          style={{ width: 'auto', minWidth: '120px', marginRight: '8px' }}
+        >
+          {sortOptions.map(opt => (
+            <option key={opt.value} value={opt.value}>{opt.label}</option>
+          ))}
+        </select>
+        <button className={`filter-btn ${sortDirection === 'asc' ? 'active' : ''}`} onClick={() => setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc')}>
+          {sortDirection === 'asc' ? '↑' : '↓'}
+        </button>
         <button className={`filter-btn ${viewMode === 'grid' ? 'active' : ''}`} onClick={() => setViewMode('grid')}>Grid</button>
         <button className={`filter-btn ${viewMode === 'table' ? 'active' : ''}`} onClick={() => setViewMode('table')}>Table</button>
       </div>
+
+      {selectedItems.size > 0 && (
+        <div className="filter-bar" style={{ background: 'var(--bg-secondary)', marginTop: '8px', padding: '12px 16px' }}>
+          <span style={{ fontWeight: 500 }}>{selectedItems.size} items selected</span>
+          <div style={{ flex: 1 }} />
+          <button className="btn btn-secondary btn-sm" onClick={bulkToggleAvailability}>Toggle Availability</button>
+          <button className="btn btn-danger btn-sm" onClick={bulkDelete} style={{ marginLeft: '8px' }}>Delete Selected</button>
+          <button className="btn btn-secondary btn-sm" onClick={() => setSelectedItems(new Set())} style={{ marginLeft: '8px' }}>Clear Selection</button>
+        </div>
+      )}
 
       {viewMode === 'grid' ? (
         <div className="grid-3">
@@ -148,11 +305,19 @@ export default function MenuPage() {
                       {item.available ? 'Available' : 'Unavailable'}
                     </span>
                   </div>
-                  <div className="menu-card-actions">
+                  <div className="menu-card-actions" style={{ gap: '4px', flexWrap: 'wrap' }}>
+                    <input 
+                      type="checkbox" 
+                      checked={selectedItems.has(item.id)}
+                      onChange={() => toggleItemSelection(item.id)}
+                      style={{ marginRight: '8px' }}
+                    />
                     <button className="action-btn edit" onClick={() => openEditModal(item)}>Edit</button>
+                    <button className="action-btn" onClick={() => duplicateItem(item)}>Duplicate</button>
                     <button className="action-btn" onClick={() => toggleAvailability(item.id)}>
-                      {item.available ? 'Mark Unavailable' : 'Mark Available'}
+                      {item.available ? 'Unavailable' : 'Available'}
                     </button>
+                    <button className="action-btn" style={{ color: 'var(--danger)' }} onClick={() => deleteItem(item.id)}>Delete</button>
                   </div>
                 </div>
               </div>
@@ -162,19 +327,26 @@ export default function MenuPage() {
       ) : (
         <div className="data-card">
           <table className="data-table">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Category</th>
-                <th>Price</th>
-                <th>Cost</th>
-                <th>Profit</th>
-                <th>Margin</th>
-                <th>Prep Time</th>
-                <th>Status</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
+              <thead>
+                <tr>
+                  <th style={{ width: '40px' }}>
+                    <input 
+                      type="checkbox" 
+                      checked={selectedItems.size === filteredItems.length && filteredItems.length > 0}
+                      onChange={selectAllItems}
+                    />
+                  </th>
+                  <th>Name</th>
+                  <th>Category</th>
+                  <th>Price</th>
+                  <th>Cost</th>
+                  <th>Profit</th>
+                  <th>Margin</th>
+                  <th>Prep Time</th>
+                  <th>Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
             <tbody>
               {filteredItems.map(item => {
                 const cost = item.costPerUnit || calculateItemCost(item.id);
@@ -182,6 +354,13 @@ export default function MenuPage() {
                 const margin = item.price > 0 ? (profit / item.price) * 100 : 0;
                 return (
                   <tr key={item.id}>
+                    <td>
+                      <input 
+                        type="checkbox" 
+                        checked={selectedItems.has(item.id)}
+                        onChange={() => toggleItemSelection(item.id)}
+                      />
+                    </td>
                     <td>{item.name}</td>
                     <td>{item.category}</td>
                     <td className="mono">{formatCurrency(item.price)}</td>
@@ -200,9 +379,11 @@ export default function MenuPage() {
                     </td>
                     <td>
                       <button className="action-btn edit" onClick={() => openEditModal(item)}>Edit</button>
-                      <button className="action-btn" style={{ marginLeft: '8px' }} onClick={() => toggleAvailability(item.id)}>
+                      <button className="action-btn" onClick={() => duplicateItem(item)}>Duplicate</button>
+                      <button className="action-btn" onClick={() => toggleAvailability(item.id)}>
                         {item.available ? 'Unavailable' : 'Available'}
                       </button>
+                      <button className="action-btn" style={{ color: 'var(--danger)' }} onClick={() => deleteItem(item.id)}>Delete</button>
                     </td>
                   </tr>
                 );
@@ -260,14 +441,52 @@ export default function MenuPage() {
                 <label className="form-label">Image URL</label>
                 <input className="form-input" value={formData.image} onChange={e => setFormData({ ...formData, image: e.target.value })} placeholder="https://..." />
               </div>
-            </div>
-          </div>
-          <div className="modal-footer">
+             </div>
+
+             <div className="form-group">
+               <label className="form-label">Dietary Tags</label>
+               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '8px' }}>
+                 {dietaryOptions.map(diet => (
+                   <label key={diet} style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
+                     <input 
+                       type="checkbox"
+                       checked={formData.dietary.includes(diet)}
+                       onChange={e => {
+                         if (e.target.checked) {
+                           setFormData({ ...formData, dietary: [...formData.dietary, diet] });
+                         } else {
+                           setFormData({ ...formData, dietary: formData.dietary.filter(d => d !== diet) });
+                         }
+                       }}
+                     />
+                     {diet}
+                   </label>
+                 ))}
+               </div>
+             </div>
+           </div>
+           <div className="modal-footer">
             <button className="btn btn-secondary" onClick={() => setShowModal(false)}>Cancel</button>
             <button className="btn btn-primary" onClick={saveItem}>{editingItem ? 'Save Changes' : 'Add Item'}</button>
           </div>
         </div>
-      </div>
-    </>
-  );
-}
+       </div>
+
+       <div className={`modal-overlay ${showDeleteConfirm ? 'active' : ''}`} onClick={() => setShowDeleteConfirm(false)}>
+         <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '400px' }}>
+           <div className="modal-header">
+             <h2 className="modal-title">Confirm Delete</h2>
+             <button className="modal-close" onClick={() => setShowDeleteConfirm(false)}>×</button>
+           </div>
+           <div className="modal-body">
+             <p>Are you sure you want to delete this menu item? This action cannot be undone.</p>
+           </div>
+           <div className="modal-footer">
+             <button className="btn btn-secondary" onClick={() => setShowDeleteConfirm(false)}>Cancel</button>
+             <button className="btn btn-danger" onClick={confirmDelete}>Delete Item</button>
+           </div>
+         </div>
+       </div>
+     </>
+   );
+ }
