@@ -40,6 +40,12 @@ interface PurchaseOrder {
   orderedAt: Date;
   expectedAt?: Date;
   receivedAt?: Date;
+  subtotal: number;
+  shippingCost: number;
+  taxPercent: number;
+  discountPercent: number;
+  taxAmount: number;
+  discountAmount: number;
   total: number;
   notes?: string;
 }
@@ -122,13 +128,13 @@ const mockPurchaseOrders: PurchaseOrder[] = [
   { id: 'po1', supplierId: 's1', supplierName: 'Fresh Foods Co', status: 'received', items: [
     { itemId: 'inv1', itemName: 'Chicken Breast', orderedQuantity: 100, receivedQuantity: 100, unitCost: 2.5 },
     { itemId: 'inv2', itemName: 'Fresh Lettuce', orderedQuantity: 50, receivedQuantity: 50, unitCost: 1.2 }
-  ], orderedAt: new Date(Date.now() - 172800000), receivedAt: new Date(Date.now() - 86400000), total: 310 },
+  ], orderedAt: new Date(Date.now() - 172800000), receivedAt: new Date(Date.now() - 86400000), subtotal: 310, shippingCost: 0, taxPercent: 0, discountPercent: 0, taxAmount: 0, discountAmount: 0, total: 310 },
   { id: 'po2', supplierId: 's2', supplierName: 'Prime Meats Ltd', status: 'partial', items: [
     { itemId: 'inv5', itemName: 'Ground Beef', orderedQuantity: 80, receivedQuantity: 40, unitCost: 3.2 }
-  ], orderedAt: new Date(Date.now() - 86400000), expectedAt: new Date(Date.now() + 86400000), total: 256 },
+  ], orderedAt: new Date(Date.now() - 86400000), expectedAt: new Date(Date.now() + 86400000), subtotal: 256, shippingCost: 0, taxPercent: 0, discountPercent: 0, taxAmount: 0, discountAmount: 0, total: 256 },
   { id: 'po3', supplierId: 's1', supplierName: 'Fresh Foods Co', status: 'sent', items: [
     { itemId: 'inv3', itemName: 'Tomatoes', orderedQuantity: 60, receivedQuantity: 0, unitCost: 0.9 }
-  ], orderedAt: new Date(Date.now()), expectedAt: new Date(Date.now() + 172800000), total: 54 },
+  ], orderedAt: new Date(Date.now()), expectedAt: new Date(Date.now() + 172800000), subtotal: 54, shippingCost: 0, taxPercent: 0, discountPercent: 0, taxAmount: 0, discountAmount: 0, total: 54 },
 ];
 
 const mockWasteRecords: WasteRecord[] = [
@@ -238,23 +244,43 @@ export default function InventoryPage() {
     expectedAt: string;
     notes: string;
     items: POFormItem[];
+    shippingCost: number;
+    taxPercent: number;
+    discountPercent: number;
   }
   
   const initialPOForm: POFormData = {
     supplierId: '',
     expectedAt: '',
     notes: '',
-    items: [{ itemId: '', orderedQuantity: 0, unitCost: 0 }]
+    items: [{ itemId: '', orderedQuantity: 0, unitCost: 0 }],
+    shippingCost: 0,
+    taxPercent: 0,
+    discountPercent: 0
   };
   
   const [poForm, setPOForm] = useState<POFormData>(initialPOForm);
   const [poFormErrors, setPOFormErrors] = useState<Partial<Record<keyof POFormData | 'items', string>>>({});
 
-  const poTotal = useMemo(() => {
-    return poForm.items.reduce((sum, item) => {
+  const poCalculations = useMemo(() => {
+    const subtotal = poForm.items.reduce((sum, item) => {
       return sum + (item.orderedQuantity * item.unitCost);
     }, 0);
-  }, [poForm.items]);
+    
+    const discountAmount = subtotal * (poForm.discountPercent / 100);
+    const afterDiscount = subtotal - discountAmount;
+    const taxAmount = afterDiscount * (poForm.taxPercent / 100);
+    const total = afterDiscount + taxAmount + poForm.shippingCost;
+    
+    return {
+      subtotal,
+      discountAmount,
+      taxAmount,
+      total: Math.max(0, total)
+    };
+  }, [poForm.items, poForm.shippingCost, poForm.taxPercent, poForm.discountPercent]);
+
+  const poTotal = poCalculations.total;
 
   const validatePOForm = (): boolean => {
     const errors: Partial<Record<keyof POFormData | 'items', string>> = {};
@@ -329,6 +355,12 @@ export default function InventoryPage() {
       items: poItems,
       orderedAt: new Date(),
       expectedAt: poForm.expectedAt ? new Date(poForm.expectedAt) : undefined,
+      subtotal: poCalculations.subtotal,
+      shippingCost: poForm.shippingCost,
+      taxPercent: poForm.taxPercent,
+      discountPercent: poForm.discountPercent,
+      taxAmount: poCalculations.taxAmount,
+      discountAmount: poCalculations.discountAmount,
       total: poTotal,
       notes: poForm.notes || undefined,
     };
@@ -357,7 +389,7 @@ export default function InventoryPage() {
     setPOForm(initialPOForm);
     setPOFormErrors({});
     setShowCreatePOModal(false);
-  }, [poForm, items, suppliers, poTotal]);
+  }, [poForm, items, suppliers, poTotal, poCalculations, validatePOForm, initialPOForm]);
 
   const openCreatePOModal = () => {
     setPOForm(initialPOForm);
@@ -1382,10 +1414,75 @@ export default function InventoryPage() {
                 />
               </div>
 
+              <div className="grid grid-cols-3 gap-4">
+                <div className="form-group">
+                  <label className="form-label">Shipping Cost ($)</label>
+                  <input
+                    type="number"
+                    className="form-input"
+                    value={poForm.shippingCost}
+                    onChange={(e) => handlePOInputChange('shippingCost', parseFloat(e.target.value) || 0)}
+                    min="0"
+                    step="0.01"
+                    placeholder="0.00"
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Tax (%)</label>
+                  <input
+                    type="number"
+                    className="form-input"
+                    value={poForm.taxPercent}
+                    onChange={(e) => handlePOInputChange('taxPercent', parseFloat(e.target.value) || 0)}
+                    min="0"
+                    max="100"
+                    step="0.01"
+                    placeholder="0.00"
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Discount (%)</label>
+                  <input
+                    type="number"
+                    className="form-input"
+                    value={poForm.discountPercent}
+                    onChange={(e) => handlePOInputChange('discountPercent', parseFloat(e.target.value) || 0)}
+                    min="0"
+                    max="100"
+                    step="0.01"
+                    placeholder="0.00"
+                  />
+                </div>
+              </div>
+
               <div className="border-t pt-4 flex justify-end">
-                <div className="text-right">
-                  <div className="text-sm text-gray-500">Order Total</div>
-                  <div className="text-2xl font-bold">{formatCurrency(poTotal)}</div>
+                <div className="text-right w-64 space-y-1">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-500">Subtotal</span>
+                    <span>{formatCurrency(poCalculations.subtotal)}</span>
+                  </div>
+                  {poForm.discountPercent > 0 && (
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-500">Discount ({poForm.discountPercent}%)</span>
+                      <span className="text-green-600">-{formatCurrency(poCalculations.discountAmount)}</span>
+                    </div>
+                  )}
+                  {poForm.taxPercent > 0 && (
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-500">Tax ({poForm.taxPercent}%)</span>
+                      <span>{formatCurrency(poCalculations.taxAmount)}</span>
+                    </div>
+                  )}
+                  {poForm.shippingCost > 0 && (
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-500">Shipping</span>
+                      <span>{formatCurrency(poForm.shippingCost)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between pt-2 border-t mt-2">
+                    <span className="font-medium">Order Total</span>
+                    <span className="text-2xl font-bold">{formatCurrency(poTotal)}</span>
+                  </div>
                 </div>
               </div>
             </div>
