@@ -4,37 +4,648 @@ import { useState, useMemo, useCallback } from 'react';
 import { inventoryItems as initialInventory } from '@/lib/mockData';
 import { InventoryItem } from '@/types';
 
+type StockMovementType = 'received' | 'used' | 'adjustment' | 'waste' | 'transfer';
+type POStatus = 'draft' | 'sent' | 'partial' | 'received' | 'cancelled';
+type TabView = 'overview' | 'items' | 'movements' | 'purchaseOrders' | 'forecasting' | 'waste' | 'suppliers' | 'counts' | 'transfers' | 'audit';
+
+interface StockMovement {
+  id: string;
+  itemId: string;
+  itemName: string;
+  type: StockMovementType;
+  quantity: number;
+  previousQuantity: number;
+  newQuantity: number;
+  reason?: string;
+  userId: string;
+  userName: string;
+  createdAt: Date;
+  location?: string;
+}
+
+interface PurchaseOrderItem {
+  itemId: string;
+  itemName: string;
+  orderedQuantity: number;
+  receivedQuantity: number;
+  unitCost: number;
+}
+
+interface PurchaseOrder {
+  id: string;
+  supplierId: string;
+  supplierName: string;
+  status: POStatus;
+  items: PurchaseOrderItem[];
+  orderedAt: Date;
+  expectedAt?: Date;
+  receivedAt?: Date;
+  total: number;
+  notes?: string;
+}
+
+interface WasteRecord {
+  id: string;
+  itemId: string;
+  itemName: string;
+  quantity: number;
+  reason: string;
+  category: 'spoiled' | 'expired' | 'damaged' | 'over-prep' | 'other';
+  createdAt: Date;
+  userId: string;
+  cost: number;
+}
+
+interface Supplier {
+  id: string;
+  name: string;
+  contactName: string;
+  email: string;
+  phone: string;
+  address?: string;
+  leadTimeDays: number;
+  paymentTerms: string;
+  active: boolean;
+}
+
+interface InventoryCount {
+  id: string;
+  status: 'pending' | 'in_progress' | 'completed' | 'reconciled';
+  scheduledAt: Date;
+  completedAt?: Date;
+  items: { itemId: string; expected: number; counted: number; variance: number }[];
+  userId: string;
+  notes?: string;
+}
+
+interface StockTransfer {
+  id: string;
+  fromLocation: string;
+  toLocation: string;
+  items: { itemId: string; itemName: string; quantity: number }[];
+  status: 'pending' | 'in_transit' | 'completed' | 'cancelled';
+  createdAt: Date;
+  completedAt?: Date;
+  requestedBy: string;
+}
+
+interface AuditLogEntry {
+  id: string;
+  action: string;
+  entityType: string;
+  entityId: string;
+  previousValue?: string;
+  newValue?: string;
+  userId: string;
+  userName: string;
+  createdAt: Date;
+  ipAddress?: string;
+}
+
 function formatCurrency(value: number): string {
   return `$${value.toFixed(2)}`;
 }
 
+function formatDate(date: Date): string {
+  return new Date(date).toLocaleDateString();
+}
+
+// Mock data
+const mockMovements: StockMovement[] = [
+  { id: 'm1', itemId: 'inv1', itemName: 'Chicken Breast', type: 'received', quantity: 50, previousQuantity: 20, newQuantity: 70, userId: 'u1', userName: 'John Manager', createdAt: new Date(Date.now() - 3600000) },
+  { id: 'm2', itemId: 'inv2', itemName: 'Fresh Lettuce', type: 'used', quantity: 12, previousQuantity: 45, newQuantity: 33, userId: 'u2', userName: 'Sarah Chef', createdAt: new Date(Date.now() - 7200000) },
+  { id: 'm3', itemId: 'inv3', itemName: 'Tomatoes', type: 'waste', quantity: 5, previousQuantity: 30, newQuantity: 25, reason: 'Spoiled', userId: 'u2', userName: 'Sarah Chef', createdAt: new Date(Date.now() - 10800000) },
+  { id: 'm4', itemId: 'inv4', itemName: 'Olive Oil', type: 'adjustment', quantity: 2, previousQuantity: 8, newQuantity: 10, reason: 'Count correction', userId: 'u1', userName: 'John Manager', createdAt: new Date(Date.now() - 86400000) },
+];
+
+const mockPurchaseOrders: PurchaseOrder[] = [
+  { id: 'po1', supplierId: 's1', supplierName: 'Fresh Foods Co', status: 'received', items: [
+    { itemId: 'inv1', itemName: 'Chicken Breast', orderedQuantity: 100, receivedQuantity: 100, unitCost: 2.5 },
+    { itemId: 'inv2', itemName: 'Fresh Lettuce', orderedQuantity: 50, receivedQuantity: 50, unitCost: 1.2 }
+  ], orderedAt: new Date(Date.now() - 172800000), receivedAt: new Date(Date.now() - 86400000), total: 310 },
+  { id: 'po2', supplierId: 's2', supplierName: 'Prime Meats Ltd', status: 'partial', items: [
+    { itemId: 'inv5', itemName: 'Ground Beef', orderedQuantity: 80, receivedQuantity: 40, unitCost: 3.2 }
+  ], orderedAt: new Date(Date.now() - 86400000), expectedAt: new Date(Date.now() + 86400000), total: 256 },
+  { id: 'po3', supplierId: 's1', supplierName: 'Fresh Foods Co', status: 'sent', items: [
+    { itemId: 'inv3', itemName: 'Tomatoes', orderedQuantity: 60, receivedQuantity: 0, unitCost: 0.9 }
+  ], orderedAt: new Date(Date.now()), expectedAt: new Date(Date.now() + 172800000), total: 54 },
+];
+
+const mockWasteRecords: WasteRecord[] = [
+  { id: 'w1', itemId: 'inv3', itemName: 'Tomatoes', quantity: 5, reason: 'Left out overnight', category: 'spoiled', createdAt: new Date(Date.now() - 86400000), userId: 'u2', cost: 4.5 },
+  { id: 'w2', itemId: 'inv2', itemName: 'Fresh Lettuce', quantity: 8, reason: 'Expired', category: 'expired', createdAt: new Date(Date.now() - 172800000), userId: 'u3', cost: 9.6 },
+  { id: 'w3', itemId: 'inv6', itemName: 'Cheese Slices', quantity: 12, reason: 'Overprepared for service', category: 'over-prep', createdAt: new Date(Date.now() - 259200000), userId: 'u2', cost: 18.0 },
+];
+
+const mockSuppliers: Supplier[] = [
+  { id: 's1', name: 'Fresh Foods Co', contactName: 'Mike Johnson', email: 'orders@freshfoods.com', phone: '555-0101', leadTimeDays: 2, paymentTerms: 'Net 15', active: true },
+  { id: 's2', name: 'Prime Meats Ltd', contactName: 'Lisa Carter', email: 'sales@primemeats.com', phone: '555-0102', leadTimeDays: 3, paymentTerms: 'Net 30', active: true },
+  { id: 's3', name: 'Dairy Best', contactName: 'Tom Wilson', email: 'support@dairybest.com', phone: '555-0103', leadTimeDays: 1, paymentTerms: 'Net 7', active: true },
+];
+
+const mockCounts: InventoryCount[] = [
+  { id: 'c1', status: 'completed', scheduledAt: new Date(Date.now() - 604800000), completedAt: new Date(Date.now() - 604800000), items: [
+    { itemId: 'inv1', expected: 45, counted: 43, variance: -2 },
+    { itemId: 'inv2', expected: 32, counted: 32, variance: 0 },
+    { itemId: 'inv3', expected: 28, counted: 25, variance: -3 },
+  ], userId: 'u1', notes: 'Minor variances within acceptable range' },
+  { id: 'c2', status: 'pending', scheduledAt: new Date(Date.now() + 86400000), items: [], userId: 'u1' },
+];
+
+const mockTransfers: StockTransfer[] = [
+  { id: 't1', fromLocation: 'Main Storage', toLocation: 'Bar Station', items: [
+    { itemId: 'inv7', itemName: 'Lemons', quantity: 20 },
+    { itemId: 'inv8', itemName: 'Limes', quantity: 15 }
+  ], status: 'completed', createdAt: new Date(Date.now() - 43200000), completedAt: new Date(Date.now() - 43100000), requestedBy: 'John Manager' },
+  { id: 't2', fromLocation: 'Walk-in Freezer', toLocation: 'Prep Kitchen', items: [
+    { itemId: 'inv1', itemName: 'Chicken Breast', quantity: 25 }
+  ], status: 'in_transit', createdAt: new Date(Date.now()), requestedBy: 'Sarah Chef' },
+];
+
+const mockAuditLogs: AuditLogEntry[] = [
+  { id: 'a1', action: 'UPDATE', entityType: 'InventoryItem', entityId: 'inv1', previousValue: '{"quantity": 65}', newValue: '{"quantity": 70}', userId: 'u1', userName: 'John Manager', createdAt: new Date(Date.now() - 3600000) },
+  { id: 'a2', action: 'CREATE', entityType: 'StockMovement', entityId: 'm1', userId: 'u1', userName: 'John Manager', createdAt: new Date(Date.now() - 3600000) },
+  { id: 'a3', action: 'UPDATE', entityType: 'PurchaseOrder', entityId: 'po1', previousValue: '{"status": "sent"}', newValue: '{"status": "received"}', userId: 'u1', userName: 'John Manager', createdAt: new Date(Date.now() - 86400000) },
+  { id: 'a4', action: 'CREATE', entityType: 'WasteRecord', entityId: 'w1', userId: 'u2', userName: 'Sarah Chef', createdAt: new Date(Date.now() - 86400000) },
+];
+
 export default function InventoryPage() {
   const [items, setItems] = useState<InventoryItem[]>(initialInventory);
-  const [view, setView] = useState<'overview' | 'list'>('overview');
+  const [activeTab, setActiveTab] = useState<TabView>('overview');
+  const [movements] = useState<StockMovement[]>(mockMovements);
+  const [purchaseOrders] = useState<PurchaseOrder[]>(mockPurchaseOrders);
+  const [wasteRecords] = useState<WasteRecord[]>(mockWasteRecords);
+  const [suppliers] = useState<Supplier[]>(mockSuppliers);
+  const [counts] = useState<InventoryCount[]>(mockCounts);
+  const [transfers] = useState<StockTransfer[]>(mockTransfers);
+  const [auditLogs] = useState<AuditLogEntry[]>(mockAuditLogs);
 
-  const lowStockItems = useMemo(() => items.filter(i => i.quantity <= i.reorderLevel), [items]);
-  const totalValue = useMemo(() => items.reduce((sum, i) => sum + (i.quantity * i.costPerUnit), 0), [items]);
+  const stats = useMemo(() => {
+    const lowStockItems = items.filter(i => i.quantity <= i.reorderLevel);
+    const totalValue = items.reduce((sum, i) => sum + (i.quantity * i.costPerUnit), 0);
+    const totalWasteCost = wasteRecords.reduce((sum, w) => sum + w.cost, 0);
+    const pendingPOs = purchaseOrders.filter(po => po.status === 'sent' || po.status === 'partial').length;
+    
+    return { totalItems: items.length, lowStockItems: lowStockItems.length, totalValue, totalWasteCost, pendingPOs };
+  }, [items, wasteRecords, purchaseOrders]);
+
+  const tabs: { id: TabView; label: string }[] = [
+    { id: 'overview', label: 'Overview' },
+    { id: 'items', label: 'Items' },
+    { id: 'movements', label: 'Movements' },
+    { id: 'purchaseOrders', label: 'Purchase Orders' },
+    { id: 'forecasting', label: 'Forecasting' },
+    { id: 'waste', label: 'Waste Tracking' },
+    { id: 'suppliers', label: 'Suppliers' },
+    { id: 'counts', label: 'Inventory Counts' },
+    { id: 'transfers', label: 'Transfers' },
+    { id: 'audit', label: 'Audit Log' },
+  ];
+
+  const renderOverview = () => (
+    <div className="space-y-6">
+      <div className="stat-grid">
+        <div className="stat-card">
+          <div className="stat-value">{stats.totalItems}</div>
+          <div className="stat-label">Total Items</div>
+        </div>
+        <div className="stat-card" style={{ background: 'var(--warning)' }}>
+          <div className="stat-value">{stats.lowStockItems}</div>
+          <div className="stat-label">Low Stock Items</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-value">{formatCurrency(stats.totalValue)}</div>
+          <div className="stat-label">Total Inventory Value</div>
+        </div>
+        <div className="stat-card" style={{ background: 'var(--danger)' }}>
+          <div className="stat-value">{formatCurrency(stats.totalWasteCost)}</div>
+          <div className="stat-label">Waste This Week</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-value">{stats.pendingPOs}</div>
+          <div className="stat-label">Pending Orders</div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="card">
+          <h3 className="card-title">Recent Stock Movements</h3>
+          <div className="space-y-3">
+            {movements.slice(0, 5).map(m => (
+              <div key={m.id} className="flex justify-between items-center py-2 border-b border-gray-100 last:border-0">
+                <div>
+                  <div className="font-medium">{m.itemName}</div>
+                  <div className="text-sm text-gray-500">{m.type} • {formatDate(m.createdAt)}</div>
+                </div>
+                <div className={`font-semibold ${m.quantity > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                  {m.quantity > 0 ? '+' : ''}{m.quantity} {items.find(i => i.id === m.itemId)?.unit || ''}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="card">
+          <h3 className="card-title">Reorder Recommendations</h3>
+          <div className="space-y-3">
+            {items.filter(i => i.quantity <= i.reorderLevel).slice(0, 5).map(item => (
+              <div key={item.id} className="flex justify-between items-center py-2 border-b border-gray-100 last:border-0">
+                <div>
+                  <div className="font-medium">{item.name}</div>
+                  <div className="text-sm text-red-500">{item.quantity} / {item.reorderLevel} {item.unit}</div>
+                </div>
+                <button className="btn btn-sm btn-primary">Create PO</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderItems = () => (
+    <div className="card">
+      <div className="flex justify-between items-center mb-4">
+        <h3 className="card-title">Inventory Items</h3>
+        <button className="btn btn-primary">Add Item</button>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full">
+          <thead>
+            <tr className="border-b">
+              <th className="text-left py-3 px-2">Name</th>
+              <th className="text-left py-3 px-2">Category</th>
+              <th className="text-right py-3 px-2">Quantity</th>
+              <th className="text-right py-3 px-2">Unit</th>
+              <th className="text-right py-3 px-2">Cost</th>
+              <th className="text-right py-3 px-2">Value</th>
+              <th className="text-left py-3 px-2">Status</th>
+              <th className="text-center py-3 px-2">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map(item => (
+              <tr key={item.id} className="border-b border-gray-100 hover:bg-gray-50">
+                <td className="py-3 px-2 font-medium">{item.name}</td>
+                <td className="py-3 px-2">{item.category}</td>
+                <td className="py-3 px-2 text-right">{item.quantity}</td>
+                <td className="py-3 px-2 text-right">{item.unit}</td>
+                <td className="py-3 px-2 text-right">{formatCurrency(item.costPerUnit)}</td>
+                <td className="py-3 px-2 text-right">{formatCurrency(item.quantity * item.costPerUnit)}</td>
+                <td className="py-3 px-2">
+                  {item.quantity <= item.reorderLevel ? <span className="text-red-600 font-medium">Low Stock</span> : <span className="text-green-600">Good</span>}
+                </td>
+                <td className="py-3 px-2 text-center">
+                  <button className="btn btn-sm btn-secondary mr-2">Edit</button>
+                  <button className="btn btn-sm btn-secondary">Adjust</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+
+  const renderMovements = () => (
+    <div className="card">
+      <div className="flex justify-between items-center mb-4">
+        <h3 className="card-title">Stock Movements</h3>
+        <button className="btn btn-primary">Record Movement</button>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full">
+          <thead>
+            <tr className="border-b">
+              <th className="text-left py-3 px-2">Date</th>
+              <th className="text-left py-3 px-2">Item</th>
+              <th className="text-left py-3 px-2">Type</th>
+              <th className="text-right py-3 px-2">Quantity</th>
+              <th className="text-right py-3 px-2">Before</th>
+              <th className="text-right py-3 px-2">After</th>
+              <th className="text-left py-3 px-2">Reason</th>
+              <th className="text-left py-3 px-2">User</th>
+            </tr>
+          </thead>
+          <tbody>
+            {movements.map(m => (
+              <tr key={m.id} className="border-b border-gray-100">
+                <td className="py-3 px-2">{formatDate(m.createdAt)}</td>
+                <td className="py-3 px-2 font-medium">{m.itemName}</td>
+                <td className="py-3 px-2 capitalize">{m.type}</td>
+                <td className={`py-3 px-2 text-right font-medium ${m.quantity > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                  {m.quantity > 0 ? '+' : ''}{m.quantity}
+                </td>
+                <td className="py-3 px-2 text-right">{m.previousQuantity}</td>
+                <td className="py-3 px-2 text-right">{m.newQuantity}</td>
+                <td className="py-3 px-2">{m.reason || '-'}</td>
+                <td className="py-3 px-2">{m.userName}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+
+  const renderPurchaseOrders = () => (
+    <div className="card">
+      <div className="flex justify-between items-center mb-4">
+        <h3 className="card-title">Purchase Orders</h3>
+        <button className="btn btn-primary">Create PO</button>
+      </div>
+      <div className="space-y-4">
+        {purchaseOrders.map(po => (
+          <div key={po.id} className="border border-gray-200 rounded-lg p-4">
+            <div className="flex justify-between items-start mb-3">
+              <div>
+                <div className="font-semibold">PO #{po.id.toUpperCase()}</div>
+                <div className="text-sm text-gray-500">{po.supplierName} • {formatDate(po.orderedAt)}</div>
+              </div>
+              <div className="text-right">
+                <div className="font-medium">{formatCurrency(po.total)}</div>
+                <div className="text-sm capitalize">{po.status.replace('_', ' ')}</div>
+              </div>
+            </div>
+            <div className="space-y-2">
+              {po.items.map((item, idx) => (
+                <div key={idx} className="flex justify-between text-sm">
+                  <span>{item.itemName}</span>
+                  <span>{item.receivedQuantity}/{item.orderedQuantity} received</span>
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-2 mt-3">
+              <button className="btn btn-sm btn-secondary">View</button>
+              {po.status === 'sent' && <button className="btn btn-sm btn-primary">Receive Items</button>}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  const renderForecasting = () => (
+    <div className="space-y-6">
+      <div className="card">
+        <h3 className="card-title">Demand Forecasting & Smart Reordering</h3>
+        <p className="text-gray-600 mb-4">Based on 30-day consumption patterns</p>
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b">
+                <th className="text-left py-3 px-2">Item</th>
+                <th className="text-right py-3 px-2">Daily Usage</th>
+                <th className="text-right py-3 px-2">Current Stock</th>
+                <th className="text-right py-3 px-2">Days Remaining</th>
+                <th className="text-right py-3 px-2">Recommended Order</th>
+                <th className="text-center py-3 px-2">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.slice(0, 8).map(item => {
+                const dailyUsage = Math.round((Math.random() * 10) + 1);
+                const daysRemaining = Math.floor(item.quantity / dailyUsage);
+                const recommended = Math.max(0, (dailyUsage * 7) - item.quantity + item.reorderLevel);
+                return (
+                  <tr key={item.id} className="border-b border-gray-100">
+                    <td className="py-3 px-2 font-medium">{item.name}</td>
+                    <td className="py-3 px-2 text-right">{dailyUsage} {item.unit}/day</td>
+                    <td className="py-3 px-2 text-right">{item.quantity} {item.unit}</td>
+                    <td className={`py-3 px-2 text-right ${daysRemaining < 3 ? 'text-red-600 font-medium' : ''}`}>{daysRemaining} days</td>
+                    <td className="py-3 px-2 text-right font-medium">{recommended} {item.unit}</td>
+                    <td className="py-3 px-2 text-center">
+                      {recommended > 0 && <button className="btn btn-sm btn-primary">Add to PO</button>}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderWaste = () => (
+    <div className="space-y-6">
+      <div className="stat-grid">
+        <div className="stat-card" style={{ background: 'var(--danger)' }}>
+          <div className="stat-value">{formatCurrency(stats.totalWasteCost)}</div>
+          <div className="stat-label">Total Waste This Week</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-value">{wasteRecords.length}</div>
+          <div className="stat-label">Waste Records</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-value">{((stats.totalWasteCost / stats.totalValue) * 100).toFixed(1)}%</div>
+          <div className="stat-label">Waste Percentage</div>
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="card-title">Waste Log</h3>
+          <button className="btn btn-danger">Record Waste</button>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b">
+                <th className="text-left py-3 px-2">Date</th>
+                <th className="text-left py-3 px-2">Item</th>
+                <th className="text-left py-3 px-2">Category</th>
+                <th className="text-right py-3 px-2">Quantity</th>
+                <th className="text-right py-3 px-2">Cost</th>
+                <th className="text-left py-3 px-2">Reason</th>
+              </tr>
+            </thead>
+            <tbody>
+              {wasteRecords.map(w => (
+                <tr key={w.id} className="border-b border-gray-100">
+                  <td className="py-3 px-2">{formatDate(w.createdAt)}</td>
+                  <td className="py-3 px-2 font-medium">{w.itemName}</td>
+                  <td className="py-3 px-2 capitalize">{w.category.replace('-', ' ')}</td>
+                  <td className="py-3 px-2 text-right">{w.quantity}</td>
+                  <td className="py-3 px-2 text-right">{formatCurrency(w.cost)}</td>
+                  <td className="py-3 px-2">{w.reason}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderSuppliers = () => (
+    <div className="card">
+      <div className="flex justify-between items-center mb-4">
+        <h3 className="card-title">Suppliers</h3>
+        <button className="btn btn-primary">Add Supplier</button>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {suppliers.map(s => (
+          <div key={s.id} className="border border-gray-200 rounded-lg p-4">
+            <div className="font-semibold">{s.name}</div>
+            <div className="text-sm text-gray-600 mt-1">{s.contactName}</div>
+            <div className="text-sm mt-2">{s.email}</div>
+            <div className="text-sm">{s.phone}</div>
+            <div className="text-sm mt-2 text-gray-500">Lead Time: {s.leadTimeDays} days</div>
+            <div className="text-sm text-gray-500">Terms: {s.paymentTerms}</div>
+            <div className="flex gap-2 mt-3">
+              <button className="btn btn-sm btn-secondary">Edit</button>
+              <button className="btn btn-sm btn-secondary">View POs</button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  const renderCounts = () => (
+    <div className="card">
+      <div className="flex justify-between items-center mb-4">
+        <h3 className="card-title">Inventory Counts & Reconciliation</h3>
+        <button className="btn btn-primary">Schedule Count</button>
+      </div>
+      <div className="space-y-4">
+        {counts.map(c => (
+          <div key={c.id} className="border border-gray-200 rounded-lg p-4">
+            <div className="flex justify-between items-start">
+              <div>
+                <div className="font-semibold">Count #{c.id.toUpperCase()}</div>
+                <div className="text-sm text-gray-500">Scheduled: {formatDate(c.scheduledAt)}</div>
+                {c.completedAt && <div className="text-sm text-gray-500">Completed: {formatDate(c.completedAt)}</div>}
+              </div>
+              <div className="text-sm capitalize font-medium">{c.status.replace('_', ' ')}</div>
+            </div>
+            {c.items.length > 0 && (
+              <div className="mt-3 space-y-1">
+                {c.items.map((item, idx) => (
+                  <div key={idx} className="flex justify-between text-sm">
+                    <span>{items.find(i => i.id === item.itemId)?.name || item.itemId}</span>
+                    <span className={item.variance !== 0 ? 'text-red-600' : ''}>
+                      {item.counted} / {item.expected} {item.variance !== 0 && `(${item.variance > 0 ? '+' : ''}${item.variance})`}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="flex gap-2 mt-3">
+              {c.status === 'pending' && <button className="btn btn-sm btn-primary">Start Count</button>}
+              {c.status === 'completed' && <button className="btn btn-sm btn-primary">Reconcile</button>}
+              <button className="btn btn-sm btn-secondary">View Details</button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  const renderTransfers = () => (
+    <div className="card">
+      <div className="flex justify-between items-center mb-4">
+        <h3 className="card-title">Multi-Location Stock Transfers</h3>
+        <button className="btn btn-primary">Create Transfer</button>
+      </div>
+      <div className="space-y-4">
+        {transfers.map(t => (
+          <div key={t.id} className="border border-gray-200 rounded-lg p-4">
+            <div className="flex justify-between items-start">
+              <div>
+                <div className="font-semibold">Transfer #{t.id.toUpperCase()}</div>
+                <div className="text-sm">{t.fromLocation} → {t.toLocation}</div>
+                <div className="text-sm text-gray-500">{formatDate(t.createdAt)} • {t.requestedBy}</div>
+              </div>
+              <div className="text-sm capitalize font-medium">{t.status.replace('_', ' ')}</div>
+            </div>
+            <div className="mt-3 space-y-1">
+              {t.items.map((item, idx) => (
+                <div key={idx} className="flex justify-between text-sm">
+                  <span>{item.itemName}</span>
+                  <span>{item.quantity}</span>
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-2 mt-3">
+              {t.status === 'in_transit' && <button className="btn btn-sm btn-primary">Mark Received</button>}
+              <button className="btn btn-sm btn-secondary">View</button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  const renderAudit = () => (
+    <div className="card">
+      <h3 className="card-title">Audit Logs</h3>
+      <div className="overflow-x-auto">
+        <table className="w-full">
+          <thead>
+            <tr className="border-b">
+              <th className="text-left py-3 px-2">Timestamp</th>
+              <th className="text-left py-3 px-2">Action</th>
+              <th className="text-left py-3 px-2">Entity</th>
+              <th className="text-left py-3 px-2">User</th>
+              <th className="text-left py-3 px-2">Changes</th>
+            </tr>
+          </thead>
+          <tbody>
+            {auditLogs.map(log => (
+              <tr key={log.id} className="border-b border-gray-100">
+                <td className="py-3 px-2 text-sm">{new Date(log.createdAt).toLocaleString()}</td>
+                <td className="py-3 px-2 font-medium">{log.action}</td>
+                <td className="py-3 px-2">{log.entityType}</td>
+                <td className="py-3 px-2">{log.userName}</td>
+                <td className="py-3 px-2 text-sm text-gray-600">
+                  {log.previousValue && log.newValue ? `${log.previousValue} → ${log.newValue}` : '-'}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+
+  const renderActiveTab = () => {
+    switch (activeTab) {
+      case 'overview': return renderOverview();
+      case 'items': return renderItems();
+      case 'movements': return renderMovements();
+      case 'purchaseOrders': return renderPurchaseOrders();
+      case 'forecasting': return renderForecasting();
+      case 'waste': return renderWaste();
+      case 'suppliers': return renderSuppliers();
+      case 'counts': return renderCounts();
+      case 'transfers': return renderTransfers();
+      case 'audit': return renderAudit();
+      default: return renderOverview();
+    }
+  };
 
   return (
-    <>
+    <div className="inventory-page">
       <div className="page-header">
         <h1 className="page-title">Inventory Management</h1>
       </div>
 
-      <div className="stat-grid">
-        <div className="stat-card">
-          <div className="stat-value">{items.length}</div>
-          <div className="stat-label">Total Items</div>
-        </div>
-        <div className="stat-card" style={{ background: 'var(--warning)' }}>
-          <div className="stat-value">{lowStockItems.length}</div>
-          <div className="stat-label">Low Stock Items</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-value">{formatCurrency(totalValue)}</div>
-          <div className="stat-label">Total Inventory Value</div>
-        </div>
+      <div className="tabs mb-6">
+        {tabs.map(tab => (
+          <button
+            key={tab.id}
+            className={`tab ${activeTab === tab.id ? 'active' : ''}`}
+            onClick={() => setActiveTab(tab.id)}
+          >
+            {tab.label}
+          </button>
+        ))}
       </div>
-    </>
+
+      {renderActiveTab()}
+    </div>
   );
 }
