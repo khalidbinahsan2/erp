@@ -896,9 +896,10 @@ export default function InventoryPage() {
     if (!item || !transferForm.quantity) return;
     
     const qty = parseFloat(transferForm.quantity);
+    if (qty <= 0) return;
     
     const newTransfer: StockTransfer = {
-      id: `TRANSFER-${Date.now()}`,
+      id: `TRF-${String(transfers.length + 1).padStart(3, '0')}`,
       itemId: item.id,
       itemName: item.name,
       quantity: qty,
@@ -914,7 +915,73 @@ export default function InventoryPage() {
     addAuditLog(item.id, 'transfer_requested', null, newTransfer);
     
     setShowTransferModal(false);
-  }, [items, transferForm, addAuditLog]);
+  }, [items, transferForm, addAuditLog, transfers]);
+
+  const approveTransfer = useCallback((transferId: string) => {
+    setTransfers(prev => prev.map(t => 
+      t.id === transferId ? { 
+        ...t, 
+        status: 'in_transit', 
+        acceptedBy: 'System User',
+        acceptedAt: new Date().toISOString()
+      } : t
+    ));
+  }, []);
+
+  const receiveTransfer = useCallback((transferId: string) => {
+    const transfer = transfers.find(t => t.id === transferId);
+    if (!transfer) return;
+
+    // Update inventory by moving quantity between locations
+    setItems(prevItems => prevItems.map(i => {
+      if (i.id === transfer.itemId) {
+        return { ...i, quantity: Math.max(0, i.quantity + transfer.quantity) };
+      }
+      return i;
+    }));
+
+    // Record stock movement
+    const item = items.find(i => i.id === transfer.itemId);
+    if (item) {
+      setStockMovements(prev => [{
+        id: `SM-${String(prev.length + 1).padStart(3, '0')}`,
+        itemId: item.id,
+        itemName: item.name,
+        type: 'transfer',
+        quantity: transfer.quantity,
+        previousQty: item.quantity,
+        newQty: item.quantity + transfer.quantity,
+        date: new Date().toISOString().split('T')[0],
+        notes: `Transfer from ${locations.find(l => l.id === transfer.fromLocation)?.name || transfer.fromLocation}`,
+        reference: transfer.id
+      }, ...prev]);
+    }
+
+    setTransfers(prev => prev.map(t => 
+      t.id === transferId ? { 
+        ...t, 
+        status: 'completed'
+      } : t
+    ));
+
+    addAuditLog(transfer.itemId, 'transfer_completed', null, transfer);
+  }, [transfers, items, locations, addAuditLog]);
+
+  const cancelTransfer = useCallback((transferId: string) => {
+    if (!confirm('Are you sure you want to cancel this transfer?')) return;
+    
+    setTransfers(prev => prev.map(t => 
+      t.id === transferId ? { 
+        ...t, 
+        status: 'cancelled' 
+      } : t
+    ));
+
+    const transfer = transfers.find(t => t.id === transferId);
+    if (transfer) {
+      addAuditLog(transfer.itemId, 'transfer_cancelled', null, transfer);
+    }
+  }, [transfers, addAuditLog]);
 
   const acceptTransfer = useCallback((transferId: string) => {
     setTransfers(prev => prev.map(t => 
@@ -1810,13 +1877,34 @@ export default function InventoryPage() {
                         {t.status}
                       </span>
                     </td>
-                    <td>
-                      {t.status === 'requested' && (
-                        <button className="btn btn-primary" style={{ padding: '4px 8px', fontSize: '12px' }} onClick={() => acceptTransfer(t.id)}>
-                          Accept
-                        </button>
-                      )}
-                    </td>
+                     <td>
+                       {t.status === 'requested' && (
+                         <>
+                           <button className="btn btn-primary" style={{ padding: '4px 8px', fontSize: '12px', marginRight: '4px' }} onClick={() => approveTransfer(t.id)}>
+                             Approve
+                           </button>
+                           <button className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '12px', color: 'var(--danger)' }} onClick={() => cancelTransfer(t.id)}>
+                             Cancel
+                           </button>
+                         </>
+                       )}
+                       {t.status === 'in_transit' && (
+                         <>
+                           <button className="btn btn-primary" style={{ padding: '4px 8px', fontSize: '12px', marginRight: '4px' }} onClick={() => receiveTransfer(t.id)}>
+                             Receive
+                           </button>
+                           <button className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '12px', color: 'var(--danger)' }} onClick={() => cancelTransfer(t.id)}>
+                             Cancel
+                           </button>
+                         </>
+                       )}
+                       {t.status === 'completed' && (
+                         <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Completed</span>
+                       )}
+                       {t.status === 'cancelled' && (
+                         <span style={{ fontSize: '12px', color: 'var(--danger)' }}>Cancelled</span>
+                       )}
+                     </td>
                   </tr>
                 ))}
               </tbody>
@@ -2218,6 +2306,82 @@ export default function InventoryPage() {
           <div className="modal-footer">
             <button className="btn btn-secondary" onClick={() => setShowCountModal(false)}>Cancel</button>
             <button className="btn btn-primary" onClick={submitInventoryCount}>Submit Count</button>
+          </div>
+        </div>
+       </div>
+
+      {/* Transfer Modal */}
+      <div className={`modal-overlay ${showTransferModal ? 'active' : ''}`} onClick={() => setShowTransferModal(false)}>
+        <div className="modal" onClick={e => e.stopPropagation()}>
+          <div className="modal-header">
+            <h2 className="modal-title">Create Stock Transfer</h2>
+            <button className="modal-close" onClick={() => setShowTransferModal(false)}>×</button>
+          </div>
+          <div className="modal-body">
+            <div className="form-group">
+              <label className="form-label">Inventory Item</label>
+              <select className="form-select" value={transferForm.itemId} onChange={e => setTransferForm({ ...transferForm, itemId: e.target.value })}>
+                <option value="">Select item...</option>
+                {items.map(i => (
+                  <option key={i.id} value={i.id}>{i.name} (Current: {i.quantity} {i.unit})</option>
+                ))}
+              </select>
+            </div>
+            <div className="grid-2">
+              <div className="form-group">
+                <label className="form-label">From Location</label>
+                <select className="form-select" value={transferForm.fromLocation} onChange={e => setTransferForm({ ...transferForm, fromLocation: e.target.value })}>
+                  {locations.map(l => (
+                    <option key={l.id} value={l.id}>{l.name} ({l.type})</option>
+                  ))}
+                </select>
+              </div>
+              <div className="form-group">
+                <label className="form-label">To Location</label>
+                <select className="form-select" value={transferForm.toLocation} onChange={e => setTransferForm({ ...transferForm, toLocation: e.target.value })}>
+                  {locations.map(l => (
+                    <option key={l.id} value={l.id}>{l.name} ({l.type})</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div className="grid-2">
+              <div className="form-group">
+                <label className="form-label">Quantity</label>
+                <input 
+                  className="form-input" 
+                  type="number"
+                  step="0.01"
+                  min="0" 
+                  value={transferForm.quantity} 
+                  onChange={e => setTransferForm({ ...transferForm, quantity: e.target.value })} 
+                  placeholder="Quantity to transfer"
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Requested By</label>
+                <input 
+                  className="form-input" 
+                  value={transferForm.requestedBy} 
+                  onChange={e => setTransferForm({ ...transferForm, requestedBy: e.target.value })} 
+                  placeholder="Name"
+                />
+              </div>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Notes</label>
+              <textarea 
+                className="form-input" 
+                rows={3} 
+                value={transferForm.notes} 
+                onChange={e => setTransferForm({ ...transferForm, notes: e.target.value })} 
+                placeholder="Transfer reason or additional details..." 
+              />
+            </div>
+          </div>
+          <div className="modal-footer">
+            <button className="btn btn-secondary" onClick={() => setShowTransferModal(false)}>Cancel</button>
+            <button className="btn btn-primary" onClick={createTransfer}>Request Transfer</button>
           </div>
         </div>
       </div>
