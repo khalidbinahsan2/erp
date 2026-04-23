@@ -351,13 +351,16 @@ export default function InventoryPage() {
     quantity: '',
     unit: 'pieces',
     reorderLevel: '',
+    minStock: '',
+    maxStock: '',
     costPerUnit: '',
     salePrice: '',
     expiryDate: '',
     batchNumber: '',
     receivedDate: '',
     barcode: '',
-    location: ''
+    location: '',
+    supplier: '',
   });
 
   // Automatic recipe-based stock deduction when orders are completed
@@ -479,11 +482,13 @@ export default function InventoryPage() {
     setEditingItem(null);
     setFormData({ 
       name: '', category: 'Ingredients', quantity: '', unit: 'pieces', reorderLevel: '', 
-      costPerUnit: '', salePrice: '', expiryDate: '', batchNumber: '', 
-      receivedDate: new Date().toISOString().split('T')[0],
-      barcode: '',
-      location: ''
+      minStock: '', maxStock: '', costPerUnit: '', salePrice: '', expiryDate: '', 
+      batchNumber: '', receivedDate: new Date().toISOString().split('T')[0],
+      barcode: '', location: '', supplier: ''
     });
+    setFormErrors({});
+    setActiveTab('basic');
+    setDuplicateFromId('');
     setShowModal(true);
   }, []);
 
@@ -495,14 +500,19 @@ export default function InventoryPage() {
       quantity: item.quantity.toString(),
       unit: item.unit,
       reorderLevel: item.reorderLevel.toString(),
+      minStock: ((item.lowStockThreshold || item.reorderLevel * 0.5) || '').toString(),
+      maxStock: ((item.reorderLevel * 3) || '').toString(),
       costPerUnit: item.costPerUnit.toString(),
       salePrice: item.salePrice?.toString() || '',
       expiryDate: item.expiryDate || '',
       batchNumber: item.batchNumber || '',
       receivedDate: item.receivedDate || '',
       barcode: item.barcode || '',
-      location: item.location || ''
+      location: item.location || '',
+      supplier: ''
     });
+    setFormErrors({});
+    setActiveTab('basic');
     setShowModal(true);
   }, []);
 
@@ -522,8 +532,15 @@ export default function InventoryPage() {
   }, []);
 
   const saveItem = useCallback(() => {
-    if (!formData.name || !formData.quantity) return;
+    // Validate required fields
+    const isValid = validateField('name', formData.name) && 
+                    validateField('quantity', formData.quantity);
+                    
+    if (!isValid || !formData.name || !formData.quantity) return;
     
+    // Auto-generate missing fields before save
+    autoGenerateFields();
+
        if (editingItem) {
       setItems(prevItems => prevItems.map(i => i.id === editingItem.id ? {
         ...i,
@@ -532,7 +549,7 @@ export default function InventoryPage() {
         quantity: parseFloat(formData.quantity),
         unit: formData.unit,
         reorderLevel: parseFloat(formData.reorderLevel) || 0,
-        lowStockThreshold: parseFloat(formData.reorderLevel) || 0,
+        lowStockThreshold: parseFloat(formData.minStock) || parseFloat(formData.reorderLevel) || 0,
         costPerUnit: parseFloat(formData.costPerUnit) || 0,
         salePrice: formData.salePrice ? parseFloat(formData.salePrice) : undefined,
         expiryDate: formData.expiryDate || undefined,
@@ -551,7 +568,7 @@ export default function InventoryPage() {
           quantity: parseFloat(formData.quantity),
           unit: formData.unit,
           reorderLevel: parseFloat(formData.reorderLevel) || 0,
-          lowStockThreshold: parseFloat(formData.reorderLevel) || 0,
+          lowStockThreshold: parseFloat(formData.minStock) || parseFloat(formData.reorderLevel) || 0,
           costPerUnit: parseFloat(formData.costPerUnit) || 0,
           salePrice: formData.salePrice ? parseFloat(formData.salePrice) : undefined,
           expiryDate: formData.expiryDate || undefined,
@@ -566,7 +583,7 @@ export default function InventoryPage() {
       });
     }
     setShowModal(false);
-  }, [formData, editingItem]);
+  }, [formData, editingItem, validateField, autoGenerateFields, generateBarcode]);
 
   const adjustQuantity = useCallback((itemId: string, adjustment: number) => {
     setItems(prevItems => prevItems.map(i => i.id === itemId ? { ...i, quantity: Math.max(0, i.quantity + adjustment) } : i));
@@ -1072,6 +1089,126 @@ export default function InventoryPage() {
   const generateBarcode = useCallback((itemId: string) => {
     return `KILO-${itemId.padStart(8, '0')}`;
   }, []);
+
+  // --- ADVANCED ADD ITEM MODAL STATE & FUNCTIONS ---
+  const [duplicateFromId, setDuplicateFromId] = useState<string>('');
+  const [activeTab, setActiveTab] = useState<'basic' | 'inventory' | 'tracking' | 'settings'>('basic');
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+
+  // Quick presets for common inventory types
+  const inventoryPresets = [
+    { name: 'Food Ingredient', category: 'Ingredients', unit: 'kg', reorderLevel: 10, minStock: 5, maxStock: 50, location: 'Walk-in Cooler' },
+    { name: 'Dry Goods', category: 'Ingredients', unit: 'kg', reorderLevel: 20, minStock: 10, maxStock: 100, location: 'Dry Storage' },
+    { name: 'Beverage', category: 'Beverages', unit: 'bottles', reorderLevel: 24, minStock: 12, maxStock: 120, location: 'Bar Storage' },
+    { name: 'Cleaning Supply', category: 'Supplies', unit: 'pieces', reorderLevel: 5, minStock: 2, maxStock: 20, location: 'Janitor Closet' },
+    { name: 'Packaging', category: 'Supplies', unit: 'boxes', reorderLevel: 10, minStock: 5, maxStock: 50, location: 'Dry Storage' },
+    { name: 'Frozen Goods', category: 'Ingredients', unit: 'kg', reorderLevel: 8, minStock: 3, maxStock: 30, location: 'Freezer' },
+  ];
+
+  // Real-time form validation
+  const validateField = useCallback((field: string, value: string) => {
+    const errors: Record<string, string> = {};
+    
+    switch(field) {
+      case 'name':
+        if (!value.trim()) errors.name = 'Item name is required';
+        else if (value.length < 2) errors.name = 'Name must be at least 2 characters';
+        break;
+      case 'quantity':
+        if (value && parseFloat(value) < 0) errors.quantity = 'Quantity cannot be negative';
+        break;
+      case 'costPerUnit':
+        if (value && parseFloat(value) < 0) errors.costPerUnit = 'Cost cannot be negative';
+        break;
+      case 'reorderLevel':
+        if (value && parseFloat(value) < 0) errors.reorderLevel = 'Reorder level cannot be negative';
+        break;
+      case 'minStock':
+        if (value && parseFloat(value) < 0) errors.minStock = 'Minimum stock cannot be negative';
+        break;
+      case 'maxStock':
+        if (value && formData.minStock && parseFloat(value) <= parseFloat(formData.minStock)) {
+          errors.maxStock = 'Max stock must be greater than min stock';
+        }
+        break;
+      case 'expiryDate':
+        if (value && new Date(value) < new Date()) {
+          errors.expiryDate = 'Expiry date cannot be in the past';
+        }
+        break;
+    }
+
+    setFormErrors(prev => ({ ...prev, ...errors }));
+    return Object.keys(errors).length === 0;
+  }, [formData.minStock]);
+
+  // Auto-fill when selecting duplicate item
+  const handleDuplicateSelect = useCallback((itemId: string) => {
+    if (!itemId) return;
+    const item = items.find(i => i.id === itemId);
+    if (item) {
+      setFormData({
+        name: `${item.name} (Copy)`,
+        category: item.category,
+        quantity: '',
+        unit: item.unit,
+        reorderLevel: item.reorderLevel.toString(),
+        costPerUnit: item.costPerUnit.toString(),
+        salePrice: item.salePrice?.toString() || '',
+        expiryDate: '',
+        batchNumber: '',
+        receivedDate: new Date().toISOString().split('T')[0],
+        barcode: '',
+        location: item.location || '',
+        minStock: (item.lowStockThreshold || item.reorderLevel * 0.5).toString(),
+        maxStock: (item.reorderLevel * 3).toString(),
+        supplier: '',
+      });
+    }
+    setDuplicateFromId('');
+  }, [items]);
+
+  // Apply preset configuration
+  const applyPreset = useCallback((preset: typeof inventoryPresets[0]) => {
+    setFormData(prev => ({
+      ...prev,
+      category: preset.category,
+      unit: preset.unit,
+      reorderLevel: preset.reorderLevel.toString(),
+      minStock: preset.minStock.toString(),
+      maxStock: preset.maxStock.toString(),
+      location: preset.location,
+    }));
+  }, []);
+
+  // Auto-generate fields helper
+  const autoGenerateFields = useCallback(() => {
+    const updates: Partial<typeof formData> = {};
+    
+    // Auto-generate batch number if empty
+    if (!formData.batchNumber) {
+      updates.batchNumber = `BATCH-${new Date().toISOString().slice(0,10).replace(/-/g, '')}-${String(Math.floor(Math.random() * 1000)).padStart(3, '0')}`;
+    }
+    
+    // Auto-generate barcode if empty
+    if (!formData.barcode) {
+      updates.barcode = generateBarcode(String(items.length + 1));
+    }
+    
+    // Auto-set received date to today if empty
+    if (!formData.receivedDate) {
+      updates.receivedDate = new Date().toISOString().split('T')[0];
+    }
+
+    // Auto-calculate min/max stock if only reorder level is set
+    if (formData.reorderLevel && !formData.minStock && !formData.maxStock) {
+      const reorder = parseFloat(formData.reorderLevel);
+      updates.minStock = Math.round(reorder * 0.5).toString();
+      updates.maxStock = Math.round(reorder * 3).toString();
+    }
+
+    setFormData(prev => ({ ...prev, ...updates }));
+  }, [formData, items.length, generateBarcode]);
 
   const deleteOrder = useCallback((orderId: string) => {
     if (confirm('Are you sure you want to delete this order?')) {
@@ -2021,77 +2158,305 @@ export default function InventoryPage() {
         </div>
       )}
 
-      {/* Add/Edit Modal */}
+      {/* Enhanced Add/Edit Modal */}
       <div className={`modal-overlay ${showModal ? 'active' : ''}`} onClick={() => setShowModal(false)}>
-        <div className="modal" onClick={e => e.stopPropagation()}>
+        <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '700px', width: '95vw' }}>
           <div className="modal-header">
             <h2 className="modal-title">{editingItem ? 'Edit Item' : 'Add New Item'}</h2>
             <button className="modal-close" onClick={() => setShowModal(false)}>×</button>
           </div>
-          <div className="modal-body">
-            <div className="form-group">
-              <label className="form-label">Item Name</label>
-              <input className="form-input" value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} placeholder="Item name" />
-            </div>
-            <div className="grid-2">
+          <div className="modal-body" style={{ padding: '20px' }}>
+            
+            {/* Quick Presets Bar */}
+            {!editingItem && (
+              <div style={{ marginBottom: '20px' }}>
+                <label className="form-label" style={{ marginBottom: '8px', display: 'block' }}>Quick Presets</label>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  {inventoryPresets.map((preset, idx) => (
+                    <button 
+                      key={idx}
+                      className="btn btn-secondary"
+                      style={{ padding: '6px 12px', fontSize: '12px' }}
+                      onClick={() => applyPreset(preset)}
+                      type="button"
+                    >
+                      {preset.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Duplicate From Existing */}
+            {!editingItem && (
               <div className="form-group">
-                <label className="form-label">Category</label>
-                <select className="form-select" value={formData.category} onChange={e => setFormData({ ...formData, category: e.target.value })}>
-                  <option>Ingredients</option>
-                  <option>Supplies</option>
-                  <option>Beverages</option>
+                <label className="form-label">Duplicate From Existing Item</label>
+                <select 
+                  className="form-select" 
+                  value={duplicateFromId} 
+                  onChange={e => handleDuplicateSelect(e.target.value)}
+                >
+                  <option value="">-- Select item to duplicate --</option>
+                  {items.map(item => (
+                    <option key={item.id} value={item.id}>{item.name}</option>
+                  ))}
                 </select>
               </div>
-              <div className="form-group">
-                <label className="form-label">Unit</label>
-                <select className="form-select" value={formData.unit} onChange={e => setFormData({ ...formData, unit: e.target.value })}>
-                  <option>pieces</option>
-                  <option>kg</option>
-                  <option>liters</option>
-                  <option>bottles</option>
-                  <option>boxes</option>
-                  <option>grams</option>
-                </select>
-              </div>
+            )}
+
+            {/* Tabs Navigation */}
+            <div style={{ display: 'flex', gap: '4px', marginBottom: '20px', borderBottom: '1px solid var(--border)' }}>
+              {(['basic', 'inventory', 'tracking', 'settings'] as const).map(tab => (
+                <button
+                  key={tab}
+                  style={{
+                    padding: '8px 16px',
+                    border: 'none',
+                    background: activeTab === tab ? 'var(--primary)' : 'transparent',
+                    color: activeTab === tab ? 'white' : 'var(--text)',
+                    borderRadius: '4px 4px 0 0',
+                    cursor: 'pointer',
+                    fontWeight: activeTab === tab ? 600 : 400,
+                  }}
+                  onClick={() => setActiveTab(tab)}
+                  type="button"
+                >
+                  {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                </button>
+              ))}
             </div>
-            <div className="grid-2">
-              <div className="form-group">
-                <label className="form-label">Quantity</label>
-                <input className="form-input" type="number" step="0.01" value={formData.quantity} onChange={e => setFormData({ ...formData, quantity: e.target.value })} placeholder="0" />
+
+            {/* Basic Tab */}
+            {activeTab === 'basic' && (
+              <>
+                <div className="form-group">
+                  <label className="form-label">Item Name *</label>
+                  <input 
+                    className={`form-input ${formErrors.name ? 'error' : ''}`}
+                    value={formData.name} 
+                    onChange={e => {
+                      setFormData({ ...formData, name: e.target.value });
+                      validateField('name', e.target.value);
+                    }} 
+                    placeholder="Item name" 
+                  />
+                  {formErrors.name && <div style={{ color: 'var(--danger)', fontSize: '12px', marginTop: '4px' }}>{formErrors.name}</div>}
+                </div>
+
+                <div className="grid-2">
+                  <div className="form-group">
+                    <label className="form-label">Category</label>
+                    <select className="form-select" value={formData.category} onChange={e => setFormData({ ...formData, category: e.target.value })}>
+                      <option>Ingredients</option>
+                      <option>Supplies</option>
+                      <option>Beverages</option>
+                      <option>Equipment</option>
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Unit Type</label>
+                    <select className="form-select" value={formData.unit} onChange={e => setFormData({ ...formData, unit: e.target.value })}>
+                      <option>pieces</option>
+                      <option>kg</option>
+                      <option>grams</option>
+                      <option>liters</option>
+                      <option>ml</option>
+                      <option>bottles</option>
+                      <option>boxes</option>
+                      <option>cases</option>
+                      <option>packs</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid-2">
+                  <div className="form-group">
+                    <label className="form-label">Quantity *</label>
+                    <input 
+                      className={`form-input ${formErrors.quantity ? 'error' : ''}`}
+                      type="number" 
+                      step="0.001" 
+                      value={formData.quantity} 
+                      onChange={e => {
+                        setFormData({ ...formData, quantity: e.target.value });
+                        validateField('quantity', e.target.value);
+                      }} 
+                      placeholder="0" 
+                    />
+                    {formErrors.quantity && <div style={{ color: 'var(--danger)', fontSize: '12px', marginTop: '4px' }}>{formErrors.quantity}</div>}
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Cost per Unit</label>
+                    <input 
+                      className={`form-input ${formErrors.costPerUnit ? 'error' : ''}`}
+                      type="number" 
+                      step="0.01" 
+                      value={formData.costPerUnit} 
+                      onChange={e => {
+                        setFormData({ ...formData, costPerUnit: e.target.value });
+                        validateField('costPerUnit', e.target.value);
+                      }} 
+                      placeholder="0.00" 
+                    />
+                    {formErrors.costPerUnit && <div style={{ color: 'var(--danger)', fontSize: '12px', marginTop: '4px' }}>{formErrors.costPerUnit}</div>}
+                  </div>
+                </div>
+
+                <div className="grid-2">
+                  <div className="form-group">
+                    <label className="form-label">Sale Price (Optional)</label>
+                    <input className="form-input" type="number" step="0.01" value={formData.salePrice || ''} onChange={e => setFormData({ ...formData, salePrice: e.target.value })} placeholder="0.00" />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Supplier</label>
+                    <select className="form-select" value={formData.supplier} onChange={e => setFormData({ ...formData, supplier: e.target.value })}>
+                      <option value="">-- Select Supplier --</option>
+                      {suppliers.map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* Inventory Tab */}
+            {activeTab === 'inventory' && (
+              <>
+                <div className="grid-3">
+                  <div className="form-group">
+                    <label className="form-label">Reorder Level</label>
+                    <input 
+                      className="form-input" 
+                      type="number" 
+                      step="0.01" 
+                      value={formData.reorderLevel} 
+                      onChange={e => setFormData({ ...formData, reorderLevel: e.target.value })} 
+                      placeholder="0" 
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Minimum Stock</label>
+                    <input 
+                      className={`form-input ${formErrors.minStock ? 'error' : ''}`}
+                      type="number" 
+                      step="0.01" 
+                      value={formData.minStock} 
+                      onChange={e => {
+                        setFormData({ ...formData, minStock: e.target.value });
+                        validateField('minStock', e.target.value);
+                      }} 
+                      placeholder="0" 
+                    />
+                    {formErrors.minStock && <div style={{ color: 'var(--danger)', fontSize: '12px', marginTop: '4px' }}>{formErrors.minStock}</div>}
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Maximum Stock</label>
+                    <input 
+                      className={`form-input ${formErrors.maxStock ? 'error' : ''}`}
+                      type="number" 
+                      step="0.01" 
+                      value={formData.maxStock} 
+                      onChange={e => {
+                        setFormData({ ...formData, maxStock: e.target.value });
+                        validateField('maxStock', e.target.value);
+                      }} 
+                      placeholder="0" 
+                    />
+                    {formErrors.maxStock && <div style={{ color: 'var(--danger)', fontSize: '12px', marginTop: '4px' }}>{formErrors.maxStock}</div>}
+                  </div>
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Storage Location</label>
+                  <select className="form-select" value={formData.location} onChange={e => setFormData({ ...formData, location: e.target.value })}>
+                    <option value="">-- Select Location --</option>
+                    {locations.map(l => <option key={l.id} value={l.name}>{l.name} ({l.type})</option>)}
+                  </select>
+                </div>
+              </>
+            )}
+
+            {/* Tracking Tab */}
+            {activeTab === 'tracking' && (
+              <>
+                <div className="grid-2">
+                  <div className="form-group">
+                    <label className="form-label">Barcode</label>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <input className="form-input" value={formData.barcode} onChange={e => setFormData({ ...formData, barcode: e.target.value })} placeholder="Barcode / SKU" style={{ flex: 1 }} />
+                      <button 
+                        className="btn btn-secondary" 
+                        style={{ padding: '0 12px' }}
+                        onClick={() => setFormData({ ...formData, barcode: generateBarcode(String(items.length + 1)) })}
+                        type="button"
+                      >
+                        Auto
+                      </button>
+                    </div>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Batch Number</label>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <input className="form-input" value={formData.batchNumber} onChange={e => setFormData({ ...formData, batchNumber: e.target.value })} placeholder="Batch number" style={{ flex: 1 }} />
+                      <button 
+                        className="btn btn-secondary" 
+                        style={{ padding: '0 12px' }}
+                        onClick={() => setFormData({ 
+                          ...formData, 
+                          batchNumber: `BATCH-${new Date().toISOString().slice(0,10).replace(/-/g, '')}-${String(Math.floor(Math.random() * 1000)).padStart(3, '0')}`
+                        })}
+                        type="button"
+                      >
+                        Auto
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid-2">
+                  <div className="form-group">
+                    <label className="form-label">Received Date</label>
+                    <input className="form-input" type="date" value={formData.receivedDate} onChange={e => setFormData({ ...formData, receivedDate: e.target.value })} />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Expiry Date</label>
+                    <input 
+                      className={`form-input ${formErrors.expiryDate ? 'error' : ''}`}
+                      type="date" 
+                      value={formData.expiryDate} 
+                      onChange={e => {
+                        setFormData({ ...formData, expiryDate: e.target.value });
+                        validateField('expiryDate', e.target.value);
+                      }} 
+                    />
+                    {formErrors.expiryDate && <div style={{ color: 'var(--danger)', fontSize: '12px', marginTop: '4px' }}>{formErrors.expiryDate}</div>}
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* Settings Tab */}
+            {activeTab === 'settings' && (
+              <div style={{ padding: '20px' }}>
+                <p style={{ color: 'var(--text-muted)', marginBottom: '16px' }}>
+                  Additional item configuration and advanced settings will appear here.
+                </p>
+                <button 
+                  className="btn btn-secondary" 
+                  onClick={autoGenerateFields}
+                  style={{ width: '100%' }}
+                  type="button"
+                >
+                  Auto-Generate Missing Fields
+                </button>
               </div>
-              <div className="form-group">
-                <label className="form-label">Reorder Level</label>
-                <input className="form-input" type="number" step="0.01" value={formData.reorderLevel} onChange={e => setFormData({ ...formData, reorderLevel: e.target.value })} placeholder="0" />
-              </div>
-            </div>
-            <div className="grid-2">
-              <div className="form-group">
-                <label className="form-label">Cost per Unit</label>
-                <input className="form-input" type="number" step="0.01" value={formData.costPerUnit} onChange={e => setFormData({ ...formData, costPerUnit: e.target.value })} placeholder="0.00" />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Sale Price (Optional)</label>
-                <input className="form-input" type="number" step="0.01" value={formData.salePrice || ''} onChange={e => setFormData({ ...formData, salePrice: e.target.value })} placeholder="0.00" />
-              </div>
-            </div>
-            <div className="grid-2">
-              <div className="form-group">
-                <label className="form-label">Batch Number</label>
-                <input className="form-input" value={formData.batchNumber} onChange={e => setFormData({ ...formData, batchNumber: e.target.value })} placeholder="Batch number" />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Received Date</label>
-                <input className="form-input" type="date" value={formData.receivedDate} onChange={e => setFormData({ ...formData, receivedDate: e.target.value })} />
-              </div>
-            </div>
-            <div className="form-group">
-              <label className="form-label">Expiry Date</label>
-              <input className="form-input" type="date" value={formData.expiryDate} onChange={e => setFormData({ ...formData, expiryDate: e.target.value })} />
-            </div>
+            )}
+
           </div>
           <div className="modal-footer">
             <button className="btn btn-secondary" onClick={() => setShowModal(false)}>Cancel</button>
-            <button className="btn btn-primary" onClick={saveItem}>{editingItem ? 'Save Changes' : 'Add Item'}</button>
+            <button className="btn btn-primary" onClick={saveItem} disabled={!formData.name || !formData.quantity}>
+              {editingItem ? 'Save Changes' : 'Add Item'}
+            </button>
           </div>
         </div>
       </div>
