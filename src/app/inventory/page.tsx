@@ -232,6 +232,8 @@ export default function InventoryPage() {
   const [stockMovements, setStockMovements] = useState<StockMovement[]>(mockMovements);
   const [auditLog, setAuditLog] = useState<AuditLogEntry[]>(mockAuditLogs);
   const [showCreatePOModal, setShowCreatePOModal] = useState(false);
+  const [selectedPO, setSelectedPO] = useState<PurchaseOrder | null>(null);
+  const [showViewPOModal, setShowViewPOModal] = useState(false);
   
   interface POFormItem {
     itemId: string;
@@ -395,6 +397,11 @@ export default function InventoryPage() {
     setPOForm(initialPOForm);
     setPOFormErrors({});
     setShowCreatePOModal(true);
+  };
+
+  const openViewPOModal = (po: PurchaseOrder) => {
+    setSelectedPO(po);
+    setShowViewPOModal(true);
   };
 
   const stats = useMemo(() => {
@@ -757,7 +764,7 @@ export default function InventoryPage() {
               ))}
             </div>
             <div className="flex gap-2 mt-3">
-              <button className="btn btn-sm btn-secondary">View</button>
+              <button className="btn btn-sm btn-secondary" onClick={() => openViewPOModal(po)}>View</button>
               {po.status === 'sent' && <button className="btn btn-sm btn-primary">Receive Items</button>}
             </div>
           </div>
@@ -1490,6 +1497,179 @@ export default function InventoryPage() {
           <div className="modal-footer">
             <button className="btn btn-secondary" onClick={() => setShowCreatePOModal(false)}>Cancel</button>
             <button className="btn btn-primary" onClick={handleSavePO}>Create Purchase Order</button>
+          </div>
+        </div>
+      </div>
+
+      {/* View Purchase Order Modal */}
+      <div className={`modal-overlay ${showViewPOModal ? 'active' : ''}`} onClick={() => { setShowViewPOModal(false); setSelectedPO(null); }}>
+        <div className="modal" style={{ maxWidth: '950px' }} onClick={e => e.stopPropagation()}>
+          <div className="modal-header">
+            <h2 className="modal-title">Purchase Order Details</h2>
+            <button className="modal-close" onClick={() => { setShowViewPOModal(false); setSelectedPO(null); }}>×</button>
+          </div>
+          <div className="modal-body">
+            {selectedPO && (
+              <div className="space-y-6">
+                {/* Order Header */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div className="space-y-1">
+                    <div className="text-sm text-gray-500">Order ID</div>
+                    <div className="font-semibold">PO #{selectedPO.id.toUpperCase()}</div>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="text-sm text-gray-500">Supplier</div>
+                    <div className="font-semibold">{selectedPO.supplierName}</div>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="text-sm text-gray-500">Status</div>
+                    <div className="font-semibold capitalize">{selectedPO.status.replace('_', ' ')}</div>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="text-sm text-gray-500">Total</div>
+                    <div className="font-semibold">{formatCurrency(selectedPO.total)}</div>
+                  </div>
+                </div>
+
+                {/* Dates */}
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="space-y-1">
+                    <div className="text-sm text-gray-500">Ordered Date</div>
+                    <div>{formatDate(selectedPO.orderedAt)}</div>
+                  </div>
+                  {selectedPO.expectedAt && (
+                    <div className="space-y-1">
+                      <div className="text-sm text-gray-500">Expected Date</div>
+                      <div>{formatDate(selectedPO.expectedAt)}</div>
+                    </div>
+                  )}
+                  {selectedPO.receivedAt && (
+                    <div className="space-y-1">
+                      <div className="text-sm text-gray-500">Received Date</div>
+                      <div>{formatDate(selectedPO.receivedAt)}</div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Order Items Table */}
+                <div className="border rounded-lg overflow-hidden">
+                  <table className="w-full">
+                    <thead className="bg-gray-50">
+                      <tr className="border-b">
+                        <th className="text-left py-3 px-4 font-medium text-gray-600">Item</th>
+                        <th className="text-right py-3 px-4 font-medium text-gray-600">Ordered</th>
+                        <th className="text-right py-3 px-4 font-medium text-gray-600">Received</th>
+                        <th className="text-right py-3 px-4 font-medium text-gray-600">Unit Cost</th>
+                        <th className="text-right py-3 px-4 font-medium text-gray-600">Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {selectedPO.items.map((item, idx) => (
+                        <tr key={idx} className="border-b border-gray-100">
+                          <td className="py-3 px-4 font-medium">{item.itemName}</td>
+                          <td className="py-3 px-4 text-right">{item.orderedQuantity}</td>
+                          <td className="py-3 px-4 text-right">{item.receivedQuantity}</td>
+                          <td className="py-3 px-4 text-right">{formatCurrency(item.unitCost)}</td>
+                          <td className="py-3 px-4 text-right">{formatCurrency(item.orderedQuantity * item.unitCost)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Pricing Breakdown */}
+                <div className="flex justify-end">
+                  <div className="w-72 space-y-2">
+                    <div className="flex justify-between py-1">
+                      <span className="text-gray-500">Subtotal</span>
+                      <span>{formatCurrency(selectedPO.subtotal)}</span>
+                    </div>
+                    {selectedPO.discountPercent > 0 && (
+                      <div className="flex justify-between py-1">
+                        <span className="text-gray-500">Discount ({selectedPO.discountPercent}%)</span>
+                        <span className="text-green-600">-{formatCurrency(selectedPO.discountAmount)}</span>
+                      </div>
+                    )}
+                    {selectedPO.taxPercent > 0 && (
+                      <div className="flex justify-between py-1">
+                        <span className="text-gray-500">Tax ({selectedPO.taxPercent}%)</span>
+                        <span>{formatCurrency(selectedPO.taxAmount)}</span>
+                      </div>
+                    )}
+                    {selectedPO.shippingCost > 0 && (
+                      <div className="flex justify-between py-1">
+                        <span className="text-gray-500">Shipping</span>
+                        <span>{formatCurrency(selectedPO.shippingCost)}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between pt-2 border-t font-semibold">
+                      <span>Grand Total</span>
+                      <span>{formatCurrency(selectedPO.total)}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Timeline / Status History */}
+                <div className="border rounded-lg p-4">
+                  <h4 className="font-semibold mb-3">Order Timeline</h4>
+                  <div className="space-y-3">
+                    <div className="flex items-start gap-3">
+                      <div className="w-2 h-2 mt-2 bg-blue-500 rounded-full"></div>
+                      <div>
+                        <div className="font-medium">Order Created</div>
+                        <div className="text-sm text-gray-500">{formatDate(selectedPO.orderedAt)}</div>
+                      </div>
+                    </div>
+                    {selectedPO.status !== 'draft' && (
+                      <div className="flex items-start gap-3">
+                        <div className="w-2 h-2 mt-2 bg-yellow-500 rounded-full"></div>
+                        <div>
+                          <div className="font-medium">Order Sent to Supplier</div>
+                          <div className="text-sm text-gray-500">Pending confirmation</div>
+                        </div>
+                      </div>
+                    )}
+                    {selectedPO.status === 'partial' && (
+                      <div className="flex items-start gap-3">
+                        <div className="w-2 h-2 mt-2 bg-orange-500 rounded-full"></div>
+                        <div>
+                          <div className="font-medium">Partially Received</div>
+                          <div className="text-sm text-gray-500">Some items have been received</div>
+                        </div>
+                      </div>
+                    )}
+                    {selectedPO.status === 'received' && (
+                      <div className="flex items-start gap-3">
+                        <div className="w-2 h-2 mt-2 bg-green-500 rounded-full"></div>
+                        <div>
+                          <div className="font-medium">Order Fully Received</div>
+                          <div className="text-sm text-gray-500">{selectedPO.receivedAt ? formatDate(selectedPO.receivedAt) : ''}</div>
+                        </div>
+                      </div>
+                    )}
+                    {selectedPO.status === 'cancelled' && (
+                      <div className="flex items-start gap-3">
+                        <div className="w-2 h-2 mt-2 bg-red-500 rounded-full"></div>
+                        <div>
+                          <div className="font-medium">Order Cancelled</div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Notes */}
+                {selectedPO.notes && (
+                  <div className="border rounded-lg p-4">
+                    <h4 className="font-semibold mb-2">Notes & Reference</h4>
+                    <p className="text-gray-600">{selectedPO.notes}</p>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+          <div className="modal-footer">
+            <button className="btn btn-secondary" onClick={() => { setShowViewPOModal(false); setSelectedPO(null); }}>Close</button>
           </div>
         </div>
       </div>
