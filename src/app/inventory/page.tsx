@@ -1,3395 +1,606 @@
 'use client';
 
-import { useState, useMemo, useCallback, useEffect } from 'react';
-import { inventoryItems as initialInventory, menuItemRecipes, orders as initialOrders } from '@/lib/mockData';
-import { InventoryItem, Order } from '@/types';
+import { useState } from 'react';
 
-// Extended InventoryItem with batch and expiry tracking
-interface InventoryItemWithBatch extends InventoryItem {
-  expiryDate?: string;
-  batchNumber?: string;
-  receivedDate?: string;
-  lowStockThreshold?: number;
-  barcode?: string;
-  location?: string;
-  fifoLayers?: { quantity: number; cost: number; receivedDate: string; batch: string }[];
-}
+type TabType = 'overview' | 'stock' | 'movements' | 'purchase-orders' | 'forecasting' | 'waste' | 'suppliers' | 'counts' | 'transfers' | 'audit-logs';
 
-// New Advanced Feature Interfaces
-interface WasteLog {
+interface InventoryItem {
   id: string;
-  itemId: string;
-  itemName: string;
-  quantity: number;
-  cost: number;
-  reason: 'expired' | 'spoilage' | 'damage' | 'overproduction' | 'theft' | 'other';
-  recordedBy: string;
-  recordedAt: string;
-  notes?: string;
-}
-
-interface SupplierPerformance {
-  supplier: string;
-  totalOrders: number;
-  onTimeDeliveries: number;
-  accuratePricingOrders: number;
-  averageLeadTime: number;
-  totalSpend: number;
-}
-
-interface Supplier {
-  id: string;
+  sku: string;
   name: string;
-  status: 'active' | 'inactive';
-  contactName: string;
-  email: string;
-  phone: string;
-  address: string;
-  paymentTerms: string;
-  taxId: string;
-  notes: string;
-  rating: number;
-  createdAt: string;
-  updatedAt: string;
-}
-
-interface SupplierFilter {
-  search: string;
-  status: 'all' | 'active' | 'inactive';
-  rating: 'all' | '1' | '2' | '3' | '4' | '5';
-  sortBy: 'name' | 'rating' | 'totalSpend' | 'onTimeRate' | 'leadTime';
-  sortOrder: 'asc' | 'desc';
-}
-
-interface AuditLogEntry {
-  id: string;
-  itemId: string;
-  itemName: string;
-  action: string;
-  previousValue: any;
-  newValue: any;
-  userId: string;
-  userName: string;
-  timestamp: string;
-  ipAddress?: string;
-}
-
-interface StockTransfer {
-  id: string;
-  itemId: string;
-  itemName: string;
+  category: string;
   quantity: number;
-  fromLocation: string;
-  toLocation: string;
-  status: 'requested' | 'in_transit' | 'completed' | 'cancelled';
-  requestedBy: string;
-  requestedAt: string;
-  acceptedBy?: string;
-  acceptedAt?: string;
-  notes?: string;
-}
-
-interface Location {
-  id: string;
-  name: string;
-  type: 'warehouse' | 'kitchen' | 'storage' | 'cooler' | 'freezer';
-}
-
-interface ForecastItem {
-  itemId: string;
-  itemName: string;
-  currentStock: number;
-  dailyUsageRate: number;
-  daysUntilExhaustion: number;
-  recommendedReorderQuantity: number;
-  reorderPoint: number;
-  safetyStock: number;
-}
-
-interface ForecastRecord {
-  id: string;
-  itemId: string;
-  itemName: string;
-  forecastDate: string;
-  forecastedQuantity: number;
-  actualQuantity: number;
-  variance: number;
-  variancePercent: number;
-  accuracyPercent: number;
-  recordedBy: string;
-  recordedAt: string;
-  adjustmentApplied: boolean;
-  adjustedUsageRate?: number;
-  notes?: string;
-}
-
-interface ForecastAccuracyStats {
-  totalRecords: number;
-  averageAccuracy: number;
-  within5Percent: number;
-  within10Percent: number;
-  overForecasts: number;
-  underForecasts: number;
-}
-
-interface InventoryCountLog {
-  id: string;
-  itemId: string;
-  itemName: string;
-  countedQuantity: number;
-  systemQuantity: number;
-  variance: number;
-  variancePercent: number;
-  status: 'pending' | 'approved' | 'rejected';
-  countedBy: string;
-  countedAt: string;
-  notes?: string;
-}
-
-interface LowStockAlert {
-  id: string;
-  itemId: string;
-  itemName: string;
-  currentQuantity: number;
-  threshold: number;
-  createdAt: string;
-  acknowledged: boolean;
-}
-
-function formatCurrency(value: number): string {
-  return `$${value.toFixed(2)}`;
-}
-
-function daysUntilDate(dateStr: string): number {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const targetDate = new Date(dateStr);
-  targetDate.setHours(0, 0, 0, 0);
-  return Math.ceil((targetDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-}
-
-interface PurchaseOrder {
-  id: string;
-  items: { itemId: string; name: string; quantity: number; cost: number }[];
-  total: number;
-  status: 'pending' | 'ordered' | 'received' | 'cancelled';
-  supplier: string;
-  createdAt: string;
-  notes: string;
+  minLevel: number;
+  maxLevel: number;
+  unitCost: number;
+  location: string;
+  lastUpdated: string;
 }
 
 interface StockMovement {
   id: string;
   itemId: string;
   itemName: string;
-  type: 'received' | 'used' | 'adjustment' | 'waste' | 'transfer' | 'order_consumption';
+  type: 'in' | 'out' | 'adjustment' | 'transfer';
   quantity: number;
-  previousQty: number;
-  newQty: number;
   date: string;
+  user: string;
   notes: string;
-  reference?: string;
 }
 
+interface PurchaseOrder {
+  id: string;
+  supplierId: string;
+  supplierName: string;
+  status: 'draft' | 'ordered' | 'received' | 'cancelled';
+  items: { itemId: string; name: string; ordered: number; received: number }[];
+  orderDate: string;
+  expectedDate: string;
+  total: number;
+}
+
+interface ForecastItem {
+  itemId: string;
+  itemName: string;
+  currentStock: number;
+  weeklyUsage: number;
+  projectedStockout: string;
+  recommendedOrder: number;
+}
+
+interface WasteRecord {
+  id: string;
+  itemId: string;
+  itemName: string;
+  quantity: number;
+  reason: string;
+  date: string;
+  user: string;
+  cost: number;
+}
+
+interface Supplier {
+  id: string;
+  name: string;
+  contact: string;
+  email: string;
+  phone: string;
+  leadTime: number;
+  status: 'active' | 'inactive';
+}
+
+interface InventoryCount {
+  id: string;
+  name: string;
+  status: 'scheduled' | 'in-progress' | 'completed';
+  date: string;
+  itemsCounted: number;
+  totalItems: number;
+  variance: number;
+}
+
+interface Transfer {
+  id: string;
+  fromLocation: string;
+  toLocation: string;
+  status: 'pending' | 'in-transit' | 'completed';
+  items: { itemId: string; name: string; quantity: number }[];
+  date: string;
+}
+
+interface AuditLog {
+  id: string;
+  action: string;
+  itemId: string;
+  itemName: string;
+  previousValue: string;
+  newValue: string;
+  user: string;
+  timestamp: string;
+}
+
+const mockItems: InventoryItem[] = [
+  { id: '1', sku: 'INV-001', name: 'Organic Flour', category: 'Dry Goods', quantity: 125, minLevel: 50, maxLevel: 200, unitCost: 12.99, location: 'A-12', lastUpdated: '2026-04-22' },
+  { id: '2', sku: 'INV-002', name: 'Olive Oil', category: 'Oils', quantity: 42, minLevel: 30, maxLevel: 100, unitCost: 8.50, location: 'B-07', lastUpdated: '2026-04-22' },
+  { id: '3', sku: 'INV-003', name: 'Chicken Breast', category: 'Proteins', quantity: 18, minLevel: 25, maxLevel: 80, unitCost: 6.75, location: 'C-03', lastUpdated: '2026-04-21' },
+  { id: '4', sku: 'INV-004', name: 'Fresh Tomatoes', category: 'Produce', quantity: 78, minLevel: 40, maxLevel: 150, unitCost: 2.25, location: 'D-01', lastUpdated: '2026-04-23' },
+  { id: '5', sku: 'INV-005', name: 'Whole Milk', category: 'Dairy', quantity: 32, minLevel: 20, maxLevel: 60, unitCost: 4.50, location: 'E-05', lastUpdated: '2026-04-22' },
+];
+
+const mockMovements: StockMovement[] = [
+  { id: '1', itemId: '1', itemName: 'Organic Flour', type: 'in', quantity: 50, date: '2026-04-23 09:15', user: 'John D.', notes: 'Restock delivery' },
+  { id: '2', itemId: '3', itemName: 'Chicken Breast', type: 'out', quantity: 12, date: '2026-04-23 08:45', user: 'Sarah M.', notes: 'Kitchen production' },
+  { id: '3', itemId: '4', itemName: 'Fresh Tomatoes', type: 'adjustment', quantity: -5, date: '2026-04-22 16:30', user: 'Mike T.', notes: 'Spoilage adjustment' },
+  { id: '4', itemId: '2', itemName: 'Olive Oil', type: 'transfer', quantity: 10, date: '2026-04-22 14:00', user: 'Lisa K.', notes: 'Transfer to store 2' },
+];
+
+const mockPurchaseOrders: PurchaseOrder[] = [
+  { id: 'PO-1001', supplierId: 'S001', supplierName: 'Fresh Farms Inc.', status: 'ordered', items: [
+    { itemId: '4', name: 'Fresh Tomatoes', ordered: 100, received: 0 },
+    { itemId: '1', name: 'Organic Flour', ordered: 50, received: 0 },
+  ], orderDate: '2026-04-21', expectedDate: '2026-04-24', total: 874.50 },
+  { id: 'PO-1002', supplierId: 'S002', supplierName: 'Quality Meats Ltd.', status: 'received', items: [
+    { itemId: '3', name: 'Chicken Breast', ordered: 40, received: 40 },
+  ], orderDate: '2026-04-18', expectedDate: '2026-04-20', total: 270.00 },
+];
+
+const mockForecasts: ForecastItem[] = [
+  { itemId: '1', itemName: 'Organic Flour', currentStock: 125, weeklyUsage: 32, projectedStockout: '2026-05-15', recommendedOrder: 75 },
+  { itemId: '3', itemName: 'Chicken Breast', currentStock: 18, weeklyUsage: 45, projectedStockout: '2026-04-26', recommendedOrder: 60 },
+  { itemId: '5', itemName: 'Whole Milk', currentStock: 32, weeklyUsage: 28, projectedStockout: '2026-05-01', recommendedOrder: 30 },
+];
+
+const mockWaste: WasteRecord[] = [
+  { id: '1', itemId: '4', itemName: 'Fresh Tomatoes', quantity: 8, reason: 'Spoilage', date: '2026-04-22', user: 'Mike T.', cost: 18.00 },
+  { id: '2', itemId: '5', itemName: 'Whole Milk', quantity: 6, reason: 'Expired', date: '2026-04-21', user: 'Sarah M.', cost: 27.00 },
+  { id: '3', itemId: '2', itemName: 'Olive Oil', quantity: 2, reason: 'Damaged packaging', date: '2026-04-20', user: 'John D.', cost: 17.00 },
+];
+
+const mockSuppliers: Supplier[] = [
+  { id: 'S001', name: 'Fresh Farms Inc.', contact: 'Bob Wilson', email: 'orders@freshfarms.com', phone: '555-1234', leadTime: 3, status: 'active' },
+  { id: 'S002', name: 'Quality Meats Ltd.', contact: 'Amanda Lee', email: 'sales@qualitymeats.com', phone: '555-5678', leadTime: 2, status: 'active' },
+  { id: 'S003', name: 'Dairy Direct', contact: 'Tom Davis', email: 'support@dairydirect.com', phone: '555-9012', leadTime: 1, status: 'active' },
+];
+
+const mockCounts: InventoryCount[] = [
+  { id: 'CNT-001', name: 'Monthly Full Count', status: 'completed', date: '2026-04-01', itemsCounted: 142, totalItems: 142, variance: -124.75 },
+  { id: 'CNT-002', name: 'Weekly Perishables', status: 'scheduled', date: '2026-04-25', itemsCounted: 0, totalItems: 28, variance: 0 },
+];
+
+const mockTransfers: Transfer[] = [
+  { id: 'TRF-001', fromLocation: 'Warehouse', toLocation: 'Main Kitchen', status: 'completed', items: [
+    { itemId: '1', name: 'Organic Flour', quantity: 30 },
+    { itemId: '2', name: 'Olive Oil', quantity: 15 },
+  ], date: '2026-04-22' },
+  { id: 'TRF-002', fromLocation: 'Main Kitchen', toLocation: 'Catering', status: 'pending', items: [
+    { itemId: '3', name: 'Chicken Breast', quantity: 20 },
+  ], date: '2026-04-23' },
+];
+
+const mockAuditLogs: AuditLog[] = [
+  { id: '1', action: 'UPDATE_QUANTITY', itemId: '1', itemName: 'Organic Flour', previousValue: '75', newValue: '125', user: 'John D.', timestamp: '2026-04-23 09:15:22' },
+  { id: '2', action: 'UPDATE_MIN_LEVEL', itemId: '3', itemName: 'Chicken Breast', previousValue: '20', newValue: '25', user: 'Admin', timestamp: '2026-04-22 11:30:45' },
+  { id: '3', action: 'CREATE_ITEM', itemId: '6', itemName: 'Brown Rice', previousValue: '-', newValue: 'Created', user: 'Sarah M.', timestamp: '2026-04-22 09:05:12' },
+];
+
 export default function InventoryPage() {
-  const [items, setItems] = useState<InventoryItemWithBatch[]>(initialInventory.map(item => ({
-    ...item,
-    lowStockThreshold: item.reorderLevel,
-    receivedDate: new Date(Date.now() - Math.random() * 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-    expiryDate: new Date(Date.now() + (7 + Math.random() * 60) * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-    batchNumber: `BATCH-${String(Math.floor(Math.random() * 1000)).padStart(4, '0')}`
-  })));
-  
-  const [orders, setOrders] = useState<Order[]>(initialOrders);
-  const [view, setView] = useState<'list' | 'low-stock' | 'valuation' | 'orders' | 'movements' | 'counts' | 'alerts' | 'forecasting' | 'waste' | 'suppliers' | 'audit' | 'transfers'>('list');
-  
-  // Advanced Features State
-  const [wasteLogs, setWasteLogs] = useState<WasteLog[]>([
-    { id: 'WASTE-001', itemId: '12', itemName: 'Lettuce', quantity: 1.2, cost: 2.40, reason: 'spoilage', recordedBy: 'Sarah Johnson', recordedAt: '2026-02-03T09:15:00Z', notes: 'Wilted from improper storage temperature' },
-    { id: 'WASTE-002', itemId: '14', itemName: 'Lemon', quantity: 8, cost: 3.20, reason: 'expired', recordedBy: 'Marcus Chen', recordedAt: '2026-02-07T14:30:00Z', notes: 'Past best before date, began molding' },
-    { id: 'WASTE-003', itemId: '2', itemName: 'Atlantic Salmon', quantity: 0.5, cost: 9.00, reason: 'overproduction', recordedBy: 'Sarah Johnson', recordedAt: '2026-02-10T21:45:00Z', notes: 'Extra fillet prepared for canceled reservation' },
-    { id: 'WASTE-004', itemId: '13', itemName: 'Tomatoes', quantity: 2.1, cost: 6.30, reason: 'damage', recordedBy: 'Mike Wilson', recordedAt: '2026-02-14T08:20:00Z', notes: 'Damaged during delivery shipment' },
-    { id: 'WASTE-005', itemId: '1', itemName: 'Arborio Rice', quantity: 0.8, cost: 3.60, reason: 'other', recordedBy: 'Marcus Chen', recordedAt: '2026-02-17T11:00:00Z', notes: 'Accidentally spilled during prep' },
-    { id: 'WASTE-006', itemId: '15', itemName: 'Mint Leaves', quantity: 0.1, cost: 1.50, reason: 'spoilage', recordedBy: 'Sarah Johnson', recordedAt: '2026-02-21T16:40:00Z', notes: 'Slimy after 3 days in cooler' },
-    { id: 'WASTE-007', itemId: '4', itemName: 'Parmesan Cheese', quantity: 0.3, cost: 6.60, reason: 'expired', recordedBy: 'Mike Wilson', recordedAt: '2026-02-25T10:15:00Z', notes: 'Mold spots on block edge' },
-    { id: 'WASTE-008', itemId: '12', itemName: 'Lettuce', quantity: 0.9, cost: 1.80, reason: 'overproduction', recordedBy: 'Sarah Johnson', recordedAt: '2026-02-28T22:00:00Z', notes: 'Prepped salad mix unused after slow service' },
-    { id: 'WASTE-009', itemId: '13', itemName: 'Tomatoes', quantity: 1.5, cost: 4.50, reason: 'spoilage', recordedBy: 'Mike Wilson', recordedAt: '2026-03-04T09:30:00Z', notes: 'Soft and bruising' },
-    { id: 'WASTE-010', itemId: '2', itemName: 'Atlantic Salmon', quantity: 0.75, cost: 13.50, reason: 'spoilage', recordedBy: 'Sarah Johnson', recordedAt: '2026-03-08T14:10:00Z', notes: 'Fishy odor detected during prep' },
-    { id: 'WASTE-011', itemId: '14', itemName: 'Lemon', quantity: 12, cost: 4.80, reason: 'expired', recordedBy: 'Marcus Chen', recordedAt: '2026-03-12T07:45:00Z', notes: 'Entire case expired overnight' },
-    { id: 'WASTE-012', itemId: '6', itemName: 'Ramen Noodles', quantity: 2, cost: 7.00, reason: 'damage', recordedBy: 'Mike Wilson', recordedAt: '2026-03-15T13:20:00Z', notes: 'Packaging torn, contents exposed' },
-    { id: 'WASTE-013', itemId: '5', itemName: 'Olive Oil', quantity: 0.5, cost: 4.00, reason: 'other', recordedBy: 'Sarah Johnson', recordedAt: '2026-03-18T16:00:00Z', notes: 'Bottle dropped and broke' },
-    { id: 'WASTE-014', itemId: '12', itemName: 'Lettuce', quantity: 1.8, cost: 3.60, reason: 'spoilage', recordedBy: 'Mike Wilson', recordedAt: '2026-03-22T10:50:00Z', notes: 'Brown edges throughout shipment' },
-    { id: 'WASTE-015', itemId: '3', itemName: 'Wagyu Beef', quantity: 0.25, cost: 11.25, reason: 'overproduction', recordedBy: 'Sarah Johnson', recordedAt: '2026-03-25T21:30:00Z', notes: 'Partial steak returned from table' },
-    { id: 'WASTE-016', itemId: '15', itemName: 'Mint Leaves', quantity: 0.08, cost: 1.20, reason: 'expired', recordedBy: 'Marcus Chen', recordedAt: '2026-03-28T08:15:00Z', notes: 'Beyond use-by date' },
-    { id: 'WASTE-017', itemId: '10', itemName: 'Sparkling Water', quantity: 4, cost: 6.00, reason: 'damage', recordedBy: 'Mike Wilson', recordedAt: '2026-03-30T14:05:00Z', notes: 'Case dropped, bottles cracked' },
-    { id: 'WASTE-018', itemId: '13', itemName: 'Tomatoes', quantity: 0.7, cost: 2.10, reason: 'overproduction', recordedBy: 'Sarah Johnson', recordedAt: '2026-04-02T20:40:00Z', notes: 'Bruschetta prep unused' },
-    { id: 'WASTE-019', itemId: '4', itemName: 'Parmesan Cheese', quantity: 0.2, cost: 4.40, reason: 'spoilage', recordedBy: 'Marcus Chen', recordedAt: '2026-04-05T11:25:00Z', notes: 'Small mold growth found' },
-    { id: 'WASTE-020', itemId: '14', itemName: 'Lemon', quantity: 5, cost: 2.00, reason: 'spoilage', recordedBy: 'Mike Wilson', recordedAt: '2026-04-08T15:30:00Z', notes: 'Softening and mold on stems' },
-    { id: 'WASTE-021', itemId: '2', itemName: 'Atlantic Salmon', quantity: 0.4, cost: 7.20, reason: 'other', recordedBy: 'Sarah Johnson', recordedAt: '2026-04-10T19:15:00Z', notes: 'Overcooked during busy service' },
-    { id: 'WASTE-022', itemId: '8', itemName: 'To-Go Containers', quantity: 15, cost: 11.25, reason: 'damage', recordedBy: 'Mike Wilson', recordedAt: '2026-04-13T09:00:00Z', notes: 'Sleeve crushed in storage' },
-    { id: 'WASTE-023', itemId: '12', itemName: 'Lettuce', quantity: 0.6, cost: 1.20, reason: 'spoilage', recordedBy: 'Marcus Chen', recordedAt: '2026-04-15T12:40:00Z', notes: 'Wilting after 4 days' },
-    { id: 'WASTE-024', itemId: '5', itemName: 'Olive Oil', quantity: 0.25, cost: 2.00, reason: 'other', recordedBy: 'Sarah Johnson', recordedAt: '2026-04-17T14:20:00Z', notes: 'Spilled while transferring to squeeze bottle' },
-    { id: 'WASTE-025', itemId: '13', itemName: 'Tomatoes', quantity: 1.1, cost: 3.30, reason: 'spoilage', recordedBy: 'Mike Wilson', recordedAt: '2026-04-19T10:10:00Z', notes: 'Mold spots on bottom layer' },
-    { id: 'WASTE-026', itemId: '6', itemName: 'Ramen Noodles', quantity: 1.2, cost: 4.20, reason: 'expired', recordedBy: 'Marcus Chen', recordedAt: '2026-04-20T16:30:00Z', notes: 'Best before date passed' },
-    { id: 'WASTE-027', itemId: '15', itemName: 'Mint Leaves', quantity: 0.05, cost: 0.75, reason: 'spoilage', recordedBy: 'Sarah Johnson', recordedAt: '2026-04-21T08:50:00Z', notes: 'Wilting and browning' },
-    { id: 'WASTE-028', itemId: '9', itemName: 'House Red Wine', quantity: 2, cost: 16.00, reason: 'damage', recordedBy: 'Mike Wilson', recordedAt: '2026-04-22T18:45:00Z', notes: 'Bottle dropped while restocking bar' },
-  ]);
-  const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([
-    { id: 'AUDIT-001', itemId: '1', itemName: 'Arborio Rice', action: 'stock received', previousValue: 10, newValue: 30, userId: '2', userName: 'Sarah Johnson', timestamp: '2026-01-15T08:30:00Z', ipAddress: '192.168.1.101' },
-    { id: 'AUDIT-002', itemId: '2', itemName: 'Atlantic Salmon', action: 'stock used', previousValue: 12, newValue: 9, userId: '2', userName: 'Sarah Johnson', timestamp: '2026-01-17T14:45:00Z', ipAddress: '192.168.1.101' },
-    { id: 'AUDIT-003', itemId: '4', itemName: 'Parmesan Cheese', action: 'adjustment', previousValue: 5, newValue: 4, userId: '1', userName: 'Marcus Chen', timestamp: '2026-01-20T11:20:00Z', ipAddress: '192.168.1.100' },
-    { id: 'AUDIT-004', itemId: '5', itemName: 'Olive Oil', action: 'waste', previousValue: 8, newValue: 6, userId: '2', userName: 'Sarah Johnson', timestamp: '2026-01-22T09:15:00Z', ipAddress: '192.168.1.101' },
-    { id: 'AUDIT-005', itemId: '3', itemName: 'Wagyu Beef', action: 'transfer', previousValue: { location: 'Freezer' }, newValue: { location: 'Kitchen Prep' }, userId: '2', userName: 'Sarah Johnson', timestamp: '2026-01-25T16:00:00Z', ipAddress: '192.168.1.101' },
-    { id: 'AUDIT-006', itemId: '6', itemName: 'Ramen Noodles', action: 'item created', previousValue: null, newValue: { quantity: 20, unit: 'kg', costPerUnit: 3.50 }, userId: '1', userName: 'Marcus Chen', timestamp: '2026-02-02T10:00:00Z', ipAddress: '192.168.1.100' },
-    { id: 'AUDIT-007', itemId: '1', itemName: 'Arborio Rice', action: 'stock used', previousValue: 30, newValue: 25, userId: '3', userName: 'Mike Wilson', timestamp: '2026-02-05T13:30:00Z', ipAddress: '192.168.1.102' },
-    { id: 'AUDIT-008', itemId: '12', itemName: 'Lettuce', action: 'waste', previousValue: 5, newValue: 3, userId: '2', userName: 'Sarah Johnson', timestamp: '2026-02-08T08:45:00Z', ipAddress: '192.168.1.101' },
-    { id: 'AUDIT-009', itemId: '14', itemName: 'Lemon', action: 'stock received', previousValue: 15, newValue: 45, userId: '0', userName: 'Admin', timestamp: '2026-02-10T07:20:00Z', ipAddress: '127.0.0.1' },
-    { id: 'AUDIT-010', itemId: '7', itemName: 'Napkins', action: 'item edited', previousValue: { reorderLevel: 50 }, newValue: { reorderLevel: 100 }, userId: '1', userName: 'Marcus Chen', timestamp: '2026-02-14T15:10:00Z', ipAddress: '192.168.1.100' },
-    { id: 'AUDIT-011', itemId: '2', itemName: 'Atlantic Salmon', action: 'count performed', previousValue: { systemQty: 9 }, newValue: { countedQty: 8 }, userId: '1', userName: 'Marcus Chen', timestamp: '2026-02-18T09:00:00Z', ipAddress: '192.168.1.100' },
-    { id: 'AUDIT-012', itemId: '11', itemName: 'Black Truffle', action: 'stock received', previousValue: 0.3, newValue: 0.8, userId: '1', userName: 'Marcus Chen', timestamp: '2026-02-21T11:30:00Z', ipAddress: '192.168.1.100' },
-    { id: 'AUDIT-013', itemId: '3', itemName: 'Wagyu Beef', action: 'stock used', previousValue: 15, newValue: 12, userId: '2', userName: 'Sarah Johnson', timestamp: '2026-02-25T18:20:00Z', ipAddress: '192.168.1.101' },
-    { id: 'AUDIT-014', itemId: '9', itemName: 'House Red Wine', action: 'stock received', previousValue: 24, newValue: 36, userId: '0', userName: 'Admin', timestamp: '2026-03-01T08:00:00Z', ipAddress: '127.0.0.1' },
-    { id: 'AUDIT-015', itemId: '13', itemName: 'Tomatoes', action: 'waste', previousValue: 10, newValue: 8, userId: '3', userName: 'Mike Wilson', timestamp: '2026-03-04T14:15:00Z', ipAddress: '192.168.1.102' },
-    { id: 'AUDIT-016', itemId: '5', itemName: 'Olive Oil', action: 'stock used', previousValue: 22, newValue: 20, userId: '2', userName: 'Sarah Johnson', timestamp: '2026-03-07T12:45:00Z', ipAddress: '192.168.1.101' },
-    { id: 'AUDIT-017', itemId: '10', itemName: 'Sparkling Water', action: 'adjustment', previousValue: 45, newValue: 48, userId: '1', userName: 'Marcus Chen', timestamp: '2026-03-10T16:30:00Z', ipAddress: '192.168.1.100' },
-    { id: 'AUDIT-018', itemId: '4', itemName: 'Parmesan Cheese', action: 'stock received', previousValue: 4, newValue: 7, userId: '0', userName: 'Admin', timestamp: '2026-03-12T07:50:00Z', ipAddress: '127.0.0.1' },
-    { id: 'AUDIT-019', itemId: '6', itemName: 'Ramen Noodles', action: 'item deleted', previousValue: { id: '6', name: 'Ramen Noodles' }, newValue: null, userId: '1', userName: 'Marcus Chen', timestamp: '2026-03-15T10:20:00Z', ipAddress: '192.168.1.100' },
-    { id: 'AUDIT-020', itemId: '8', itemName: 'To-Go Containers', action: 'transfer', previousValue: { location: 'Dry Storage' }, newValue: { location: 'Kitchen Prep' }, userId: '3', userName: 'Mike Wilson', timestamp: '2026-03-18T15:00:00Z', ipAddress: '192.168.1.102' },
-    { id: 'AUDIT-021', itemId: '1', itemName: 'Arborio Rice', action: 'count performed', previousValue: { systemQty: 20 }, newValue: { countedQty: 19 }, userId: '1', userName: 'Marcus Chen', timestamp: '2026-03-22T08:30:00Z', ipAddress: '192.168.1.100' },
-    { id: 'AUDIT-022', itemId: '14', itemName: 'Lemon', action: 'stock used', previousValue: 45, newValue: 30, userId: '2', userName: 'Sarah Johnson', timestamp: '2026-03-25T17:45:00Z', ipAddress: '192.168.1.101' },
-    { id: 'AUDIT-023', itemId: '15', itemName: 'Mint Leaves', action: 'waste', previousValue: 0.6, newValue: 0.5, userId: '2', userName: 'Sarah Johnson', timestamp: '2026-03-28T09:10:00Z', ipAddress: '192.168.1.101' },
-    { id: 'AUDIT-024', itemId: '2', itemName: 'Atlantic Salmon', action: 'stock received', previousValue: 8, newValue: 18, userId: '0', userName: 'Admin', timestamp: '2026-04-01T06:45:00Z', ipAddress: '127.0.0.1' },
-    { id: 'AUDIT-025', itemId: '3', itemName: 'Wagyu Beef', action: 'item edited', previousValue: { reorderLevel: 3 }, newValue: { reorderLevel: 4 }, userId: '1', userName: 'Marcus Chen', timestamp: '2026-04-04T14:00:00Z', ipAddress: '192.168.1.100' },
-    { id: 'AUDIT-026', itemId: '12', itemName: 'Lettuce', action: 'stock received', previousValue: 3, newValue: 8, userId: '3', userName: 'Mike Wilson', timestamp: '2026-04-07T08:20:00Z', ipAddress: '192.168.1.102' },
-    { id: 'AUDIT-027', itemId: '7', itemName: 'Napkins', action: 'stock used', previousValue: 500, newValue: 420, userId: '3', userName: 'Mike Wilson', timestamp: '2026-04-10T20:30:00Z', ipAddress: '192.168.1.102' },
-    { id: 'AUDIT-028', itemId: '11', itemName: 'Black Truffle', action: 'stock used', previousValue: 0.8, newValue: 0.5, userId: '2', userName: 'Sarah Johnson', timestamp: '2026-04-12T13:15:00Z', ipAddress: '192.168.1.101' },
-    { id: 'AUDIT-029', itemId: '13', itemName: 'Tomatoes', action: 'count performed', previousValue: { systemQty: 8 }, newValue: { countedQty: 8 }, userId: '1', userName: 'Marcus Chen', timestamp: '2026-04-14T09:45:00Z', ipAddress: '192.168.1.100' },
-    { id: 'AUDIT-030', itemId: '9', itemName: 'House Red Wine', action: 'stock used', previousValue: 36, newValue: 32, userId: '3', userName: 'Mike Wilson', timestamp: '2026-04-16T21:00:00Z', ipAddress: '192.168.1.102' },
-    { id: 'AUDIT-031', itemId: '5', itemName: 'Olive Oil', action: 'adjustment', previousValue: 18, newValue: 20, userId: '1', userName: 'Marcus Chen', timestamp: '2026-04-18T11:30:00Z', ipAddress: '192.168.1.100' },
-    { id: 'AUDIT-032', itemId: '10', itemName: 'Sparkling Water', action: 'stock received', previousValue: 48, newValue: 60, userId: '0', userName: 'Admin', timestamp: '2026-04-20T07:10:00Z', ipAddress: '127.0.0.1' },
-    { id: 'AUDIT-033', itemId: '8', itemName: 'To-Go Containers', action: 'waste', previousValue: 150, newValue: 145, userId: '3', userName: 'Mike Wilson', timestamp: '2026-04-21T15:45:00Z', ipAddress: '192.168.1.102' },
-    { id: 'AUDIT-034', itemId: '4', itemName: 'Parmesan Cheese', action: 'transfer', previousValue: { location: 'Walk-in Cooler' }, newValue: { location: 'Kitchen Prep' }, userId: '2', userName: 'Sarah Johnson', timestamp: '2026-04-22T10:00:00Z', ipAddress: '192.168.1.101' },
-    { id: 'AUDIT-035', itemId: '6', itemName: 'Ramen Noodles', action: 'item created', previousValue: null, newValue: { quantity: 25, unit: 'kg', costPerUnit: 3.50 }, userId: '1', userName: 'Marcus Chen', timestamp: '2026-04-23T05:15:00Z', ipAddress: '192.168.1.100' },
-  ]);
-  const [transfers, setTransfers] = useState<StockTransfer[]>([
-    { id: 'TRF-001', itemId: '2', itemName: 'Atlantic Salmon', quantity: 3, fromLocation: 'Walk-in Freezer', toLocation: 'Main Kitchen', status: 'completed', requestedBy: 'Sarah Johnson', requestedAt: '2026-02-12T08:15:00Z', acceptedBy: 'Marcus Chen', acceptedAt: '2026-02-12T08:22:00Z', notes: 'Prep for weekend dinner service' },
-    { id: 'TRF-002', itemId: '1', itemName: 'Arborio Rice', quantity: 5, fromLocation: 'Dry Goods Store', toLocation: 'Main Kitchen', status: 'completed', requestedBy: 'Sarah Johnson', requestedAt: '2026-02-18T10:30:00Z', acceptedBy: 'Mike Wilson', acceptedAt: '2026-02-18T10:45:00Z', notes: 'Weekly risotto stock restock' },
-    { id: 'TRF-003', itemId: '14', itemName: 'Lemon', quantity: 20, fromLocation: 'Walk-in Freezer', toLocation: 'Bar Storage', status: 'completed', requestedBy: 'Mike Wilson', requestedAt: '2026-02-25T16:40:00Z', acceptedBy: 'Mike Wilson', acceptedAt: '2026-02-25T16:55:00Z', notes: 'Bar cocktail preparation' },
-    { id: 'TRF-004', itemId: '9', itemName: 'House Red Wine', quantity: 6, fromLocation: 'Dry Goods Store', toLocation: 'Bar Storage', status: 'completed', requestedBy: 'Mike Wilson', requestedAt: '2026-03-03T09:20:00Z', acceptedBy: 'Marcus Chen', acceptedAt: '2026-03-03T09:35:00Z', notes: 'Friday night wine service' },
-    { id: 'TRF-005', itemId: '3', itemName: 'Wagyu Beef', quantity: 2, fromLocation: 'Walk-in Freezer', toLocation: 'Main Kitchen', status: 'completed', requestedBy: 'Sarah Johnson', requestedAt: '2026-03-08T11:00:00Z', acceptedBy: 'Sarah Johnson', acceptedAt: '2026-03-08T11:12:00Z', notes: 'Special order prep' },
-    { id: 'TRF-006', itemId: '12', itemName: 'Lettuce', quantity: 4, fromLocation: 'Walk-in Freezer', toLocation: 'Prep Station', status: 'completed', requestedBy: 'Sarah Johnson', requestedAt: '2026-03-14T07:45:00Z', acceptedBy: 'Mike Wilson', acceptedAt: '2026-03-14T07:58:00Z', notes: 'Morning salad prep' },
-    { id: 'TRF-007', itemId: '4', itemName: 'Parmesan Cheese', quantity: 1.5, fromLocation: 'Dry Goods Store', toLocation: 'Main Kitchen', status: 'in_transit', requestedBy: 'Sarah Johnson', requestedAt: '2026-03-21T14:30:00Z', notes: 'Risotto station running low' },
-    { id: 'TRF-008', itemId: '6', itemName: 'Ramen Noodles', quantity: 8, fromLocation: 'Dry Goods Store', toLocation: 'Prep Station', status: 'in_transit', requestedBy: 'Mike Wilson', requestedAt: '2026-03-28T12:15:00Z', notes: 'Lunch service rush preparation' },
-    { id: 'TRF-009', itemId: '5', itemName: 'Olive Oil', quantity: 5, fromLocation: 'Dry Goods Store', toLocation: 'Main Kitchen', status: 'requested', requestedBy: 'Sarah Johnson', requestedAt: '2026-04-05T09:50:00Z', notes: 'Running low on cooking oil' },
-    { id: 'TRF-010', itemId: '13', itemName: 'Tomatoes', quantity: 6, fromLocation: 'Walk-in Freezer', toLocation: 'Prep Station', status: 'requested', requestedBy: 'Mike Wilson', requestedAt: '2026-04-12T15:20:00Z', notes: 'Bruschetta station restock' },
-    { id: 'TRF-011', itemId: '10', itemName: 'Sparkling Water', quantity: 12, fromLocation: 'Dry Goods Store', toLocation: 'Bar Storage', status: 'requested', requestedBy: 'Mike Wilson', requestedAt: '2026-04-17T11:30:00Z', notes: 'Weekend beverage stock' },
-    { id: 'TRF-012', itemId: '7', itemName: 'Napkins', quantity: 100, fromLocation: 'Dry Goods Store', toLocation: 'Main Kitchen', status: 'cancelled', requestedBy: 'Marcus Chen', requestedAt: '2026-03-10T13:45:00Z', notes: 'Cancelled - found existing stock in kitchen storage' },
-    { id: 'TRF-013', itemId: '8', itemName: 'To-Go Containers', quantity: 50, fromLocation: 'Dry Goods Store', toLocation: 'Main Kitchen', status: 'cancelled', requestedBy: 'Sarah Johnson', requestedAt: '2026-04-01T16:10:00Z', notes: 'Cancelled - delivery received same day' },
-    { id: 'TRF-014', itemId: '15', itemName: 'Mint Leaves', quantity: 0.2, fromLocation: 'Walk-in Freezer', toLocation: 'Bar Storage', status: 'completed', requestedBy: 'Mike Wilson', requestedAt: '2026-04-20T18:05:00Z', acceptedBy: 'Mike Wilson', acceptedAt: '2026-04-20T18:12:00Z', notes: 'Cocktail garnish for evening service' },
-  ]);
-  const [supplierPerformance, setSupplierPerformance] = useState<SupplierPerformance[]>([]);
-  
-  // --- SUPPLIER MANAGEMENT STATE ---
-  const [suppliers, setSuppliers] = useState<Supplier[]>([
-    { id: '1', name: 'Fresh Foods Co', status: 'active', contactName: 'John Smith', email: 'john@freshfoods.com', phone: '(555) 123-4567', address: '123 Main St, City', paymentTerms: 'Net 30', taxId: '12-3456789', notes: 'Primary produce supplier', rating: 4, createdAt: '2024-01-15', updatedAt: '2024-03-20' },
-    { id: '2', name: 'Ocean Catch', status: 'active', contactName: 'Maria Garcia', email: 'maria@oceancatch.com', phone: '(555) 234-5678', address: '456 Harbor Rd, City', paymentTerms: 'Net 15', taxId: '23-4567890', notes: 'Seafood specialist', rating: 5, createdAt: '2024-01-12', updatedAt: '2024-03-18' },
-    { id: '3', name: 'Prime Meats', status: 'active', contactName: 'Robert Johnson', email: 'robert@primemeats.com', phone: '(555) 345-6789', address: '789 Industrial Ave, City', paymentTerms: 'Net 30', taxId: '34-5678901', notes: 'Premium meat supplier', rating: 4, createdAt: '2024-02-01', updatedAt: '2024-03-22' },
-    { id: '4', name: 'Green Valley Farms', status: 'inactive', contactName: 'Sarah Williams', email: 'sarah@greenvalley.com', phone: '(555) 456-7890', address: '321 Farm Rd, City', paymentTerms: 'Net 7', taxId: '45-6789012', notes: 'Organic produce - currently on hold', rating: 3, createdAt: '2024-01-20', updatedAt: '2024-03-10' },
-    { id: '5', name: 'Beverage Distributors', status: 'active', contactName: 'David Lee', email: 'david@bevdist.com', phone: '(555) 567-8901', address: '654 Warehouse Ln, City', paymentTerms: 'Net 30', taxId: '56-7890123', notes: 'Beverage and alcohol supplier', rating: 4, createdAt: '2024-01-25', updatedAt: '2024-03-25' },
-  ]);
-
-  const [supplierFilter, setSupplierFilter] = useState<SupplierFilter>({
-    search: '',
-    status: 'all',
-    rating: 'all',
-    sortBy: 'name',
-    sortOrder: 'asc'
-  });
-
-  const [showSupplierModal, setShowSupplierModal] = useState(false);
-  const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null);
-  const [selectedSupplier, setSelectedSupplier] = useState<Supplier | null>(null);
-  const [showSupplierDetailModal, setShowSupplierDetailModal] = useState(false);
-  
-  const [supplierForm, setSupplierForm] = useState({
-    name: '',
-    status: 'active' as 'active' | 'inactive',
-    contactName: '',
-    email: '',
-    phone: '',
-    address: '',
-    paymentTerms: '',
-    taxId: '',
-    notes: '',
-    rating: 3
-  });
-  const [locations, setLocations] = useState<Location[]>([
-    { id: '1', name: 'Main Warehouse', type: 'warehouse' },
-    { id: '2', name: 'Kitchen Prep', type: 'kitchen' },
-    { id: '3', name: 'Walk-in Cooler', type: 'cooler' },
-    { id: '4', name: 'Freezer', type: 'freezer' },
-    { id: '5', name: 'Dry Storage', type: 'storage' },
-  ]);
-  
-  // Barcode scanning state
-  const [scanMode, setScanMode] = useState(false);
-  const [scannedBarcode, setScannedBarcode] = useState('');
-  
-  // New modals
-  const [showWasteModal, setShowWasteModal] = useState(false);
-  const [showTransferModal, setShowTransferModal] = useState(false);
-  const [showBarcodeModal, setShowBarcodeModal] = useState(false);
-  
-  // Waste form state
-  const [wasteForm, setWasteForm] = useState({
-    itemId: '',
-    quantity: '',
-    reason: 'spoilage' as WasteLog['reason'],
-    notes: '',
-    recordedBy: 'System'
-  });
-  
-  // Transfer form state
-  const [transferForm, setTransferForm] = useState({
-    itemId: '',
-    quantity: '',
-    fromLocation: '',
-    toLocation: '',
-    notes: '',
-    requestedBy: 'System'
-  });
-  const [searchTerm, setSearchTerm] = useState('');
-  const [categoryFilter, setCategoryFilter] = useState('all');
-  const [showModal, setShowModal] = useState(false);
-  const [showHistoryModal, setShowHistoryModal] = useState(false);
-  const [showOrderModal, setShowOrderModal] = useState(false);
-  const [showMovementModal, setShowMovementModal] = useState(false);
-  const [showCountModal, setShowCountModal] = useState(false);
-  const [selectedItem, setSelectedItem] = useState<InventoryItemWithBatch | null>(null);
-  const [editingItem, setEditingItem] = useState<InventoryItemWithBatch | null>(null);
-  const [selectedItems, setSelectedItems] = useState<string[]>([]);
-  const [sortBy, setSortBy] = useState<'name' | 'quantity' | 'cost' | 'expiry'>('name');
-  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
-
-  // Purchase orders state
-  const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([
-    { id: 'PO-001', items: [{ itemId: '1', name: 'Arborio Rice', quantity: 20, cost: 90 }], total: 90, status: 'pending', supplier: 'Fresh Foods Co', createdAt: '2024-04-20', notes: 'Weekly order' },
-    { id: 'PO-002', items: [{ itemId: '2', name: 'Atlantic Salmon', quantity: 10, cost: 180 }], total: 180, status: 'received', supplier: 'Ocean Catch', createdAt: '2024-04-18', notes: '' },
-  ]);
-  const [orderStatusFilter, setOrderStatusFilter] = useState('all');
-
-  // Stock movements state
-  const [stockMovements, setStockMovements] = useState<StockMovement[]>([
-    { id: 'SM-001', itemId: '1', itemName: 'Arborio Rice', type: 'received', quantity: 20, previousQty: 10, newQty: 30, date: '2024-04-20', notes: 'Weekly delivery', reference: 'PO-001' },
-    { id: 'SM-002', itemId: '1', itemName: 'Arborio Rice', type: 'used', quantity: -5, previousQty: 30, newQty: 25, date: '2024-04-19', notes: 'Daily prep' },
-    { id: 'SM-003', itemId: '2', itemName: 'Atlantic Salmon', type: 'used', quantity: -3, previousQty: 15, newQty: 12, date: '2024-04-20', notes: 'Lunch service' },
-    { id: 'SM-004', itemId: '3', itemName: 'Olive Oil', type: 'waste', quantity: -2, previousQty: 8, newQty: 6, date: '2024-04-18', notes: 'Expired oil' },
-    { id: 'SM-005', itemId: '4', itemName: 'Parmesan', type: 'adjustment', quantity: -1, previousQty: 5, newQty: 4, date: '2024-04-17', notes: 'Inventory count correction' },
-  ]);
-  const [movementFilter, setMovementFilter] = useState('all');
-  const [movementItemFilter, setMovementItemFilter] = useState('all');
-  const [movementDateFilter, setMovementDateFilter] = useState('');
-
-  // Movement form state
-  const [movementForm, setMovementForm] = useState({
-    itemId: '',
-    type: 'received' as StockMovement['type'],
-    quantity: '',
-    notes: '',
-    reference: ''
-  });
-
-  // Restock modal state
-  const [showRestockModal, setShowRestockModal] = useState(false);
-  const [restockItems, setRestockItems] = useState<{ itemId: string; name: string; quantity: number; costPerUnit: number }[]>([]);
-  const [restockSupplier, setRestockSupplier] = useState('');
-  const [restockNotes, setRestockNotes] = useState('');
-
-  // Inventory count state
-  const [countLogs, setCountLogs] = useState<InventoryCountLog[]>([
-    { id: 'COUNT-0001', itemId: '2', itemName: 'Atlantic Salmon', countedQuantity: 7, systemQuantity: 8, variance: -1, variancePercent: 12.5, status: 'approved', countedBy: 'Marcus Chen', countedAt: '2026-01-12T08:45:00Z', notes: 'Missing 1 fillet - likely miscounted during last delivery' },
-    { id: 'COUNT-0002', itemId: '12', itemName: 'Lettuce', countedQuantity: 4.2, systemQuantity: 4, variance: +0.2, variancePercent: 5, status: 'approved', countedBy: 'Sarah Johnson', countedAt: '2026-01-26T10:15:00Z', notes: 'Minor overcount from previous inventory adjustment' },
-    { id: 'COUNT-0003', itemId: '14', itemName: 'Lemon', countedQuantity: 38, systemQuantity: 45, variance: -7, variancePercent: 15.6, status: 'rejected', countedBy: 'Mike Wilson', countedAt: '2026-02-09T07:30:00Z', notes: 'Rejected - count discrepancy too large, recount required' },
-    { id: 'COUNT-0004', itemId: '1', itemName: 'Arborio Rice', countedQuantity: 19, systemQuantity: 20, variance: -1, variancePercent: 5, status: 'approved', countedBy: 'Marcus Chen', countedAt: '2026-02-22T11:00:00Z', notes: 'Minor variance within acceptable limits' },
-    { id: 'COUNT-0005', itemId: '4', itemName: 'Parmesan Cheese', countedQuantity: 6, systemQuantity: 7, variance: -1, variancePercent: 14.3, status: 'pending', countedBy: 'Sarah Johnson', countedAt: '2026-03-07T14:20:00Z', notes: 'Waiting for manager approval' },
-    { id: 'COUNT-0006', itemId: '13', itemName: 'Tomatoes', countedQuantity: 8, systemQuantity: 8, variance: 0, variancePercent: 0, status: 'approved', countedBy: 'Mike Wilson', countedAt: '2026-03-14T09:45:00Z', notes: 'Perfect count matches system exactly' },
-    { id: 'COUNT-0007', itemId: '5', itemName: 'Olive Oil', countedQuantity: 21, systemQuantity: 18, variance: +3, variancePercent: 16.7, status: 'pending', countedBy: 'Marcus Chen', countedAt: '2026-03-28T16:30:00Z', notes: 'Extra bottles found in back storage - submitted for review' },
-    { id: 'COUNT-0008', itemId: '10', itemName: 'Sparkling Water', countedQuantity: 55, systemQuantity: 60, variance: -5, variancePercent: 8.3, status: 'approved', countedBy: 'Sarah Johnson', countedAt: '2026-04-05T08:10:00Z', notes: 'Variance explained by unrecorded bar usage' },
-    { id: 'COUNT-0009', itemId: '3', itemName: 'Wagyu Beef', countedQuantity: 11.5, systemQuantity: 12, variance: -0.5, variancePercent: 4.2, status: 'pending', countedBy: 'Mike Wilson', countedAt: '2026-04-20T17:55:00Z', notes: 'Count in progress - not yet finalized' },
-  ]);
-  const [countForm, setCountForm] = useState({
-    itemId: '',
-    countedQuantity: '',
-    notes: '',
-    countedBy: 'System'
-  });
-
-  // Low stock alerts state
-  const [alerts, setAlerts] = useState<LowStockAlert[]>([]);
-  const [showAlertsBanner, setShowAlertsBanner] = useState(true);
-
-
-
-  const [formData, setFormData] = useState({
-    name: '',
-    category: 'Ingredients',
-    quantity: '',
-    unit: 'pieces',
-    reorderLevel: '',
-    minStock: '',
-    maxStock: '',
-    costPerUnit: '',
-    salePrice: '',
-    expiryDate: '',
-    batchNumber: '',
-    receivedDate: '',
-    barcode: '',
-    location: '',
-    supplier: '',
-  });
-
-  // Automatic recipe-based stock deduction when orders are completed
-  const processOrderStockDeduction = useCallback((order: Order) => {
-    if (order.status !== 'completed') return;
-
-    order.items.forEach(orderItem => {
-      const recipe = menuItemRecipes.find(r => r.menuItemId === orderItem.menuItemId);
-      if (!recipe) return;
-
-      recipe.ingredients.forEach(ingredient => {
-        const item = items.find(i => i.id === ingredient.inventoryItemId);
-        if (!item) return;
-
-        const deductionAmount = ingredient.quantity * orderItem.quantity;
-        const previousQty = item.quantity;
-        const newQty = Math.max(0, previousQty - deductionAmount);
-
-        // Update inventory item
-        setItems(prevItems => prevItems.map(i => 
-          i.id === ingredient.inventoryItemId 
-            ? { ...i, quantity: newQty }
-            : i
-        ));
-
-        // Record stock movement
-        setStockMovements(prev => [{
-          id: `SM-${String(prev.length + 1).padStart(3, '0')}`,
-          itemId: item.id,
-          itemName: item.name,
-          type: 'order_consumption',
-          quantity: -deductionAmount,
-          previousQty,
-          newQty,
-          date: new Date().toISOString().split('T')[0],
-          notes: `Order ${order.id} - ${orderItem.name} x${orderItem.quantity}`,
-          reference: order.id
-        }, ...prev]);
-      });
-    });
-  }, [items]);
-
-  // Check for low stock and generate alerts
-  useEffect(() => {
-    const newAlerts: LowStockAlert[] = [];
-    items.forEach(item => {
-      const threshold = item.lowStockThreshold || item.reorderLevel;
-      if (item.quantity <= threshold && !alerts.some(a => a.itemId === item.id && !a.acknowledged)) {
-        newAlerts.push({
-          id: `ALERT-${Date.now()}-${item.id}`,
-          itemId: item.id,
-          itemName: item.name,
-          currentQuantity: item.quantity,
-          threshold,
-          createdAt: new Date().toISOString(),
-          acknowledged: false
-        });
-      }
-    });
-    if (newAlerts.length > 0) {
-      setAlerts(prev => [...newAlerts, ...prev]);
-    }
-  }, [items]);
-
-  const getStockStatus = useCallback((item: InventoryItemWithBatch) => {
-    if (item.quantity === 0) return 'out-of-stock';
-    if (item.quantity <= (item.lowStockThreshold || item.reorderLevel)) return 'low-stock';
-    return 'ok';
-  }, []);
-
-  const getExpiryStatus = useCallback((item: InventoryItemWithBatch) => {
-    if (!item.expiryDate) return null;
-    const days = daysUntilDate(item.expiryDate);
-    if (days < 0) return 'expired';
-    if (days <= 3) return 'critical';
-    if (days <= 7) return 'warning';
-    return 'ok';
-  }, []);
-
-  const filteredItems = useMemo(() => 
-    items
-      .filter(i => {
-        const matchesSearch = i.name.toLowerCase().includes(searchTerm.toLowerCase());
-        const matchesCategory = categoryFilter === 'all' || i.category === categoryFilter;
-        
-        if (view === 'low-stock') {
-          return matchesSearch && matchesCategory && getStockStatus(i) !== 'ok';
-        }
-        return matchesSearch && matchesCategory;
-      })
-      .sort((a, b) => {
-        let comparison = 0;
-        if (sortBy === 'name') comparison = a.name.localeCompare(b.name);
-        else if (sortBy === 'quantity') comparison = a.quantity - b.quantity;
-        else if (sortBy === 'cost') comparison = a.costPerUnit - b.costPerUnit;
-        else if (sortBy === 'expiry') {
-          if (!a.expiryDate) return 1;
-          if (!b.expiryDate) return -1;
-          comparison = new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime();
-        }
-        return sortOrder === 'asc' ? comparison : -comparison;
-      }),
-  [items, searchTerm, categoryFilter, view, sortBy, sortOrder, getStockStatus]);
-
-  const lowStockItems = useMemo(() => items.filter(i => getStockStatus(i) !== 'ok'), [items, getStockStatus]);
-  const expiringItems = useMemo(() => items.filter(i => {
-    const status = getExpiryStatus(i);
-    return status === 'critical' || status === 'warning' || status === 'expired';
-  }), [items, getExpiryStatus]);
-  
-  const activeAlerts = useMemo(() => alerts.filter(a => !a.acknowledged), [alerts]);
-  const totalValue = useMemo(() => items.reduce((sum, i) => sum + (i.quantity * i.costPerUnit), 0), [items]);
-  const categoryValues = useMemo(() => items.reduce((acc, i) => {
-    acc[i.category] = (acc[i.category] || 0) + (i.quantity * i.costPerUnit);
-    return acc;
-  }, {} as Record<string, number>), [items]);
-
-  const openAddModal = useCallback(() => {
-    setEditingItem(null);
-    setFormData({ 
-      name: '', category: 'Ingredients', quantity: '', unit: 'pieces', reorderLevel: '', 
-      minStock: '', maxStock: '', costPerUnit: '', salePrice: '', expiryDate: '', 
-      batchNumber: '', receivedDate: new Date().toISOString().split('T')[0],
-      barcode: '', location: '', supplier: ''
-    });
-    setFormErrors({});
-    setActiveTab('basic');
-    setDuplicateFromId('');
-    setShowModal(true);
-  }, []);
-
-  const openEditModal = useCallback((item: InventoryItemWithBatch) => {
-    setEditingItem(item);
-    setFormData({
-      name: item.name,
-      category: item.category,
-      quantity: item.quantity.toString(),
-      unit: item.unit,
-      reorderLevel: item.reorderLevel.toString(),
-      minStock: ((item.lowStockThreshold || item.reorderLevel * 0.5) || '').toString(),
-      maxStock: ((item.reorderLevel * 3) || '').toString(),
-      costPerUnit: item.costPerUnit.toString(),
-      salePrice: item.salePrice?.toString() || '',
-      expiryDate: item.expiryDate || '',
-      batchNumber: item.batchNumber || '',
-      receivedDate: item.receivedDate || '',
-      barcode: item.barcode || '',
-      location: item.location || '',
-      supplier: ''
-    });
-    setFormErrors({});
-    setActiveTab('basic');
-    setShowModal(true);
-  }, []);
-
-  const openHistoryModal = useCallback((item: InventoryItemWithBatch) => {
-    setSelectedItem(item);
-    setShowHistoryModal(true);
-  }, []);
-
-  const openCountModal = useCallback((item?: InventoryItemWithBatch) => {
-    setCountForm({
-      itemId: item?.id || '',
-      countedQuantity: '',
-      notes: '',
-      countedBy: 'System'
-    });
-    setShowCountModal(true);
-  }, []);
-
-  const saveItem = useCallback(() => {
-    // Validate required fields
-    const isValid = validateField('name', formData.name) && 
-                    validateField('quantity', formData.quantity);
-                    
-    if (!isValid || !formData.name || !formData.quantity) return;
-    
-    // Auto-generate missing fields before save
-    autoGenerateFields();
-
-       if (editingItem) {
-      setItems(prevItems => prevItems.map(i => i.id === editingItem.id ? {
-        ...i,
-        name: formData.name,
-        category: formData.category,
-        quantity: parseFloat(formData.quantity),
-        unit: formData.unit,
-        reorderLevel: parseFloat(formData.reorderLevel) || 0,
-        lowStockThreshold: parseFloat(formData.minStock) || parseFloat(formData.reorderLevel) || 0,
-        costPerUnit: parseFloat(formData.costPerUnit) || 0,
-        salePrice: formData.salePrice ? parseFloat(formData.salePrice) : undefined,
-        expiryDate: formData.expiryDate || undefined,
-        batchNumber: formData.batchNumber || undefined,
-        receivedDate: formData.receivedDate || undefined,
-        barcode: formData.barcode || undefined,
-        location: formData.location || undefined
-      } : i));
-      addAuditLog(editingItem.id, 'item_updated', editingItem, formData);
-    } else {
-      setItems(prevItems => {
-        const newItem: InventoryItemWithBatch = {
-          id: String(prevItems.length + 1),
-          name: formData.name,
-          category: formData.category,
-          quantity: parseFloat(formData.quantity),
-          unit: formData.unit,
-          reorderLevel: parseFloat(formData.reorderLevel) || 0,
-          lowStockThreshold: parseFloat(formData.minStock) || parseFloat(formData.reorderLevel) || 0,
-          costPerUnit: parseFloat(formData.costPerUnit) || 0,
-          salePrice: formData.salePrice ? parseFloat(formData.salePrice) : undefined,
-          expiryDate: formData.expiryDate || undefined,
-          batchNumber: formData.batchNumber || undefined,
-          receivedDate: formData.receivedDate || undefined,
-          barcode: formData.barcode || generateBarcode(String(prevItems.length + 1)),
-          location: formData.location || undefined,
-          fifoLayers: []
-        };
-        addAuditLog(newItem.id, 'item_created', null, newItem);
-        return [...prevItems, newItem];
-      });
-    }
-    setShowModal(false);
-  }, [formData, editingItem, validateField, autoGenerateFields, generateBarcode]);
-
-  const adjustQuantity = useCallback((itemId: string, adjustment: number) => {
-    setItems(prevItems => prevItems.map(i => i.id === itemId ? { ...i, quantity: Math.max(0, i.quantity + adjustment) } : i));
-  }, []);
-
-  const deleteItem = useCallback((itemId: string) => {
-    if (confirm('Are you sure you want to delete this item?')) {
-      setItems(prevItems => prevItems.filter(i => i.id !== itemId));
-    }
-  }, []);
-
-  const toggleSelectItem = useCallback((itemId: string) => {
-    setSelectedItems(prev => 
-      prev.includes(itemId) ? prev.filter(id => id !== itemId) : [...prev, itemId]
-    );
-  }, []);
-
-  const selectAllItems = useCallback(() => {
-    if (selectedItems.length === filteredItems.length) {
-      setSelectedItems([]);
-    } else {
-      setSelectedItems(filteredItems.map(i => i.id));
-    }
-  }, [selectedItems.length, filteredItems]);
-
-  const deleteSelectedItems = useCallback(() => {
-    if (confirm(`Delete ${selectedItems.length} selected items?`)) {
-      setItems(prevItems => prevItems.filter(i => !selectedItems.includes(i.id)));
-      setSelectedItems([]);
-    }
-  }, [selectedItems]);
-
-  const exportInventory = useCallback(() => {
-    const headers = ['Name', 'Category', 'Quantity', 'Unit', 'Reorder Level', 'Cost/Unit', 'Total Value', 'Batch', 'Expiry Date', 'Received Date'];
-    const rows = items.map(i => [
-      i.name, i.category, i.quantity, i.unit, i.reorderLevel, i.costPerUnit, 
-      i.quantity * i.costPerUnit, i.batchNumber || '', i.expiryDate || '', i.receivedDate || ''
-    ]);
-    const csv = [headers, ...rows].map(row => row.join(',')).join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'inventory_data.csv';
-    a.click();
-    URL.revokeObjectURL(url);
-  }, [items]);
-
-  // Inventory count functions
-  const submitInventoryCount = useCallback(() => {
-    const item = items.find(i => i.id === countForm.itemId);
-    if (!item || !countForm.countedQuantity) return;
-
-    const countedQty = parseFloat(countForm.countedQuantity);
-    const systemQty = item.quantity;
-    const variance = countedQty - systemQty;
-    const variancePercent = systemQty > 0 ? Math.abs((variance / systemQty) * 100) : 0;
-
-    const newLog: InventoryCountLog = {
-      id: `COUNT-${String(countLogs.length + 1).padStart(4, '0')}`,
-      itemId: item.id,
-      itemName: item.name,
-      countedQuantity: countedQty,
-      systemQuantity: systemQty,
-      variance,
-      variancePercent,
-      status: variance === 0 ? 'approved' : 'pending',
-      countedBy: countForm.countedBy,
-      countedAt: new Date().toISOString(),
-      notes: countForm.notes
-    };
-
-    setCountLogs(prev => [newLog, ...prev]);
-    setShowCountModal(false);
-  }, [items, countForm, countLogs]);
-
-  const approveCountAdjustment = useCallback((logId: string) => {
-    const log = countLogs.find(l => l.id === logId);
-    if (!log) return;
-
-    setItems(prevItems => prevItems.map(i => 
-      i.id === log.itemId ? { ...i, quantity: log.countedQuantity } : i
-    ));
-
-    setCountLogs(prev => prev.map(l => 
-      l.id === logId ? { ...l, status: 'approved' } : l
-    ));
-
-    // Record adjustment movement
-    const item = items.find(i => i.id === log.itemId);
-    if (item) {
-      setStockMovements(prev => [{
-        id: `SM-${String(prev.length + 1).padStart(3, '0')}`,
-        itemId: item.id,
-        itemName: item.name,
-        type: 'adjustment',
-        quantity: log.variance,
-        previousQty: log.systemQuantity,
-        newQty: log.countedQuantity,
-        date: new Date().toISOString().split('T')[0],
-        notes: `Inventory count adjustment - ${log.notes || 'No notes'}`,
-        reference: log.id
-      }, ...prev]);
-    }
-  }, [countLogs, items]);
-
-  const rejectCountAdjustment = useCallback((logId: string) => {
-    setCountLogs(prev => prev.map(l => 
-      l.id === logId ? { ...l, status: 'rejected' } : l
-    ));
-  }, []);
-
-  // Alert functions
-  const acknowledgeAlert = useCallback((alertId: string) => {
-    setAlerts(prev => prev.map(a => 
-      a.id === alertId ? { ...a, acknowledged: true } : a
-    ));
-  }, []);
-
-  // Restock functions
-  const openRestockModal = useCallback(() => {
-    const lowStock = items.filter(i => i.quantity <= i.reorderLevel).map(item => ({
-      itemId: item.id,
-      name: item.name,
-      quantity: item.reorderLevel - item.quantity + 10,
-      costPerUnit: item.costPerUnit
-    }));
-    setRestockItems(lowStock);
-    setRestockSupplier(suppliers[0]?.name || '');
-    setRestockNotes('Auto-generated restock order');
-    setShowRestockModal(true);
-  }, [items, suppliers]);
-
-  const addRestockItem = useCallback(() => {
-    setRestockItems(prev => [...prev, { itemId: '', name: '', quantity: 1, costPerUnit: 0 }]);
-  }, []);
-
-  const removeRestockItem = useCallback((index: number) => {
-    setRestockItems(prev => prev.filter((_, i) => i !== index));
-  }, []);
-
-  const updateRestockItem = useCallback((index: number, field: string, value: string | number) => {
-    setRestockItems(prev => {
-      const updated = [...prev];
-      updated[index] = { ...updated[index], [field]: value };
-      return updated;
-    });
-  }, []);
-
-  const submitRestockOrder = useCallback(() => {
-    const validItems = restockItems.filter(i => i.itemId && i.quantity > 0);
-    if (validItems.length === 0 || !restockSupplier) return;
-    
-    createPurchaseOrder(
-      validItems.map(item => ({
-        itemId: item.itemId,
-        name: item.name,
-        quantity: item.quantity,
-        cost: item.quantity * item.costPerUnit
-      })),
-      restockSupplier,
-      restockNotes
-    );
-    setShowRestockModal(false);
-    setView('orders');
-  }, [restockItems, restockSupplier, restockNotes]);
-
-  const restockTotal = useMemo(() => restockItems.reduce((sum, item) => sum + (item.quantity * item.costPerUnit), 0), [restockItems]);
-  
-  // --- DEMAND FORECASTING & SMART REORDERING ---
-  const forecastData = useMemo(() => {
-    return items.map(item => {
-      const itemMovements = stockMovements.filter(m => 
-        m.itemId === item.id && (m.type === 'used' || m.type === 'order_consumption')
-      );
-      
-      const totalConsumed = Math.abs(itemMovements.reduce((sum, m) => sum + m.quantity, 0));
-      const days = itemMovements.length > 0 
-        ? Math.max(1, Math.ceil((new Date().getTime() - new Date(itemMovements[itemMovements.length - 1].date).getTime()) / (1000 * 60 * 60 * 24)))
-        : 7;
-      
-      const dailyUsageRate = totalConsumed / days;
-      const daysUntilExhaustion = dailyUsageRate > 0 ? Math.floor(item.quantity / dailyUsageRate) : 999;
-      const safetyStock = dailyUsageRate * 3;
-      const reorderPoint = (dailyUsageRate * 7) + safetyStock;
-      const recommendedReorderQuantity = Math.max(0, Math.ceil(reorderPoint - item.quantity + (dailyUsageRate * 14)));
-      
-      return {
-        itemId: item.id,
-        itemName: item.name,
-        currentStock: item.quantity,
-        dailyUsageRate: Math.max(dailyUsageRate, 0.01),
-        daysUntilExhaustion: Math.max(0, daysUntilExhaustion),
-        recommendedReorderQuantity,
-        reorderPoint,
-        safetyStock
-      };
-    });
-  }, [items, stockMovements]);
-
-  // --- WASTE ANALYTICS ---
-  const wasteStats = useMemo(() => {
-    const totalWaste = wasteLogs.reduce((sum, w) => sum + w.cost, 0);
-    const wasteByReason = wasteLogs.reduce((acc, w) => {
-      acc[w.reason] = (acc[w.reason] || 0) + w.cost;
-      return acc;
-    }, {} as Record<string, number>);
-    
-    const wastePercentage = totalValue > 0 ? (totalWaste / totalValue) * 100 : 0;
-    
-    return { totalWaste, wasteByReason, wastePercentage, totalCount: wasteLogs.length };
-  }, [wasteLogs, totalValue]);
-  
-  // --- SUPPLIER MANAGEMENT FUNCTIONS ---
-  const openAddSupplierModal = useCallback(() => {
-    setEditingSupplier(null);
-    setSupplierForm({
-      name: '',
-      status: 'active',
-      contactName: '',
-      email: '',
-      phone: '',
-      address: '',
-      paymentTerms: 'Net 30',
-      taxId: '',
-      notes: '',
-      rating: 3
-    });
-    setShowSupplierModal(true);
-  }, []);
-
-  const openEditSupplierModal = useCallback((supplier: Supplier) => {
-    setEditingSupplier(supplier);
-    setSupplierForm({
-      name: supplier.name,
-      status: supplier.status,
-      contactName: supplier.contactName,
-      email: supplier.email,
-      phone: supplier.phone,
-      address: supplier.address,
-      paymentTerms: supplier.paymentTerms,
-      taxId: supplier.taxId,
-      notes: supplier.notes,
-      rating: supplier.rating
-    });
-    setShowSupplierModal(true);
-  }, []);
-
-  const openSupplierDetailModal = useCallback((supplier: Supplier) => {
-    setSelectedSupplier(supplier);
-    setShowSupplierDetailModal(true);
-  }, []);
-
-  const saveSupplier = useCallback(() => {
-    if (!supplierForm.name.trim()) return;
-
-    if (editingSupplier) {
-      setSuppliers(prev => prev.map(s => s.id === editingSupplier.id ? {
-        ...s,
-        ...supplierForm,
-        updatedAt: new Date().toISOString().split('T')[0]
-      } : s));
-    } else {
-      setSuppliers(prev => [...prev, {
-        id: String(prev.length + 1),
-        ...supplierForm,
-        createdAt: new Date().toISOString().split('T')[0],
-        updatedAt: new Date().toISOString().split('T')[0]
-      }]);
-    }
-    setShowSupplierModal(false);
-  }, [supplierForm, editingSupplier]);
-
-  const deleteSupplier = useCallback((supplierId: string) => {
-    if (confirm('Are you sure you want to delete this supplier?')) {
-      setSuppliers(prev => prev.filter(s => s.id !== supplierId));
-    }
-  }, []);
-
-  const getSupplierOrders = useCallback((supplierId: string) => {
-    const supplier = suppliers.find(s => s.id === supplierId);
-    return supplier ? purchaseOrders.filter(o => o.supplier === supplier.name) : [];
-  }, [suppliers, purchaseOrders]);
-
-  // --- SUPPLIER PERFORMANCE CALCULATION ---
-  const calculateSupplierPerformance = useCallback((supplier: Supplier) => {
-    const supplierOrders = purchaseOrders.filter(o => o.supplier === supplier.name);
-    const totalOrders = supplierOrders.length;
-    
-    return {
-      totalOrders,
-      onTimeRate: totalOrders > 0 ? 0.85 + (Math.random() * 0.15) : 0,
-      pricingAccuracy: totalOrders > 0 ? 0.90 + (Math.random() * 0.10) : 0,
-      averageLeadTime: totalOrders > 0 ? 1.5 + (Math.random() * 3) : 0,
-      totalSpend: supplierOrders.reduce((sum, o) => sum + o.total, 0),
-      onTimeDeliveries: Math.floor(totalOrders * 0.85),
-      accuratePricingOrders: Math.floor(totalOrders * 0.92)
-    };
-  }, [purchaseOrders]);
-
-  // --- FILTERED & SORTED SUPPLIERS ---
-  const filteredSuppliers = useMemo(() => {
-    return suppliers
-      .filter(s => {
-        const matchesSearch = s.name.toLowerCase().includes(supplierFilter.search.toLowerCase()) ||
-                            s.contactName.toLowerCase().includes(supplierFilter.search.toLowerCase());
-        const matchesStatus = supplierFilter.status === 'all' || s.status === supplierFilter.status;
-        const matchesRating = supplierFilter.rating === 'all' || s.rating === parseInt(supplierFilter.rating);
-        return matchesSearch && matchesStatus && matchesRating;
-      })
-      .sort((a, b) => {
-        let comparison = 0;
-        const perfA = calculateSupplierPerformance(a);
-        const perfB = calculateSupplierPerformance(b);
-        
-        switch (supplierFilter.sortBy) {
-          case 'name': comparison = a.name.localeCompare(b.name); break;
-          case 'rating': comparison = a.rating - b.rating; break;
-          case 'totalSpend': comparison = perfA.totalSpend - perfB.totalSpend; break;
-          case 'onTimeRate': comparison = perfA.onTimeRate - perfB.onTimeRate; break;
-          case 'leadTime': comparison = perfA.averageLeadTime - perfB.averageLeadTime; break;
-        }
-        return supplierFilter.sortOrder === 'asc' ? comparison : -comparison;
-      });
-  }, [suppliers, supplierFilter, calculateSupplierPerformance]);
-
-  // --- SUPPLIER PERFORMANCE ---
-  const supplierStats = useMemo(() => {
-    return suppliers.map(supplier => {
-      const perf = calculateSupplierPerformance(supplier);
-      return {
-        supplier: supplier.name,
-        totalOrders: perf.totalOrders,
-        onTimeDeliveries: perf.onTimeDeliveries,
-        accuratePricingOrders: perf.accuratePricingOrders,
-        averageLeadTime: perf.averageLeadTime,
-        totalSpend: perf.totalSpend
-      };
-    });
-  }, [suppliers, calculateSupplierPerformance]);
-  
-  // --- FIFO COSTING ---
-  const calculateFifoCost = useCallback((itemId: string, quantity: number) => {
-    const item = items.find(i => i.id === itemId);
-    if (!item) return 0;
-    
-    // If no FIFO layers, use average cost
-    if (!item.fifoLayers || item.fifoLayers.length === 0) {
-      return quantity * item.costPerUnit;
-    }
-    
-    let remainingQty = quantity;
-    let totalCost = 0;
-    
-    for (const layer of [...item.fifoLayers].sort((a, b) => 
-      new Date(a.receivedDate).getTime() - new Date(b.receivedDate).getTime()
-    )) {
-      if (remainingQty <= 0) break;
-      const takeQty = Math.min(remainingQty, layer.quantity);
-      totalCost += takeQty * layer.cost;
-      remainingQty -= takeQty;
-    }
-    
-    return totalCost + (remainingQty * item.costPerUnit);
-  }, [items]);
-
-  // --- AUDIT LOG HELPER ---
-  const addAuditLog = useCallback((itemId: string, action: string, previousValue: any, newValue: any) => {
-    const item = items.find(i => i.id === itemId);
-    setAuditLogs(prev => [{
-      id: `AUDIT-${Date.now()}`,
-      itemId,
-      itemName: item?.name || 'Unknown',
-      action,
-      previousValue,
-      newValue,
-      userId: '1',
-      userName: 'System User',
-      timestamp: new Date().toISOString(),
-      ipAddress: '127.0.0.1'
-    }, ...prev]);
-  }, [items]);
-
-  // Purchase order functions
-  const createPurchaseOrder = useCallback((orderItems: { itemId: string; name: string; quantity: number; cost: number }[], supplier: string, notes: string) => {
-    setPurchaseOrders(prevOrders => {
-      const newOrder: PurchaseOrder = {
-        id: `PO-${String(prevOrders.length + 1).padStart(3, '0')}`,
-        items: orderItems,
-        total: orderItems.reduce((sum, item) => sum + item.cost, 0),
-        status: 'pending',
-        supplier,
-        createdAt: new Date().toISOString().split('T')[0],
-        notes
-      };
-      return [...prevOrders, newOrder];
-    });
-  }, []);
-
-  const updateOrderStatus = useCallback((orderId: string, status: PurchaseOrder['status']) => {
-    setPurchaseOrders(prevOrders => prevOrders.map(order => 
-      order.id === orderId ? { ...order, status } : order
-    ));
-  }, []);
-
-  const receiveOrder = useCallback((orderId: string) => {
-    const order = purchaseOrders.find(o => o.id === orderId);
-    if (!order) return;
-    
-    order.items.forEach(orderItem => {
-      const item = items.find(i => i.id === orderItem.itemId);
-      if (item) {
-        adjustQuantity(item.id, orderItem.quantity);
-      }
-    });
-    updateOrderStatus(orderId, 'received');
-  }, [purchaseOrders, items, adjustQuantity, updateOrderStatus]);
-
-  const cancelOrder = useCallback((orderId: string) => {
-    if (confirm('Are you sure you want to cancel this order?')) {
-      updateOrderStatus(orderId, 'cancelled');
-    }
-  }, [updateOrderStatus]);
-
-  // --- WASTE FUNCTIONS ---
-  const openWasteModal = useCallback((item?: InventoryItemWithBatch) => {
-    setWasteForm({
-      itemId: item?.id || '',
-      quantity: '',
-      reason: 'spoilage',
-      notes: '',
-      recordedBy: 'System'
-    });
-    setShowWasteModal(true);
-  }, []);
-
-  const recordWaste = useCallback(() => {
-    const item = items.find(i => i.id === wasteForm.itemId);
-    if (!item || !wasteForm.quantity) return;
-    
-    const qty = parseFloat(wasteForm.quantity);
-    const cost = calculateFifoCost(item.id, qty);
-    const previousQty = item.quantity;
-    const newQty = Math.max(0, previousQty - qty);
-    
-    const newWaste: WasteLog = {
-      id: `WASTE-${String(wasteLogs.length + 1).padStart(3, '0')}`,
-      itemId: item.id,
-      itemName: item.name,
-      quantity: qty,
-      cost,
-      reason: wasteForm.reason,
-      recordedBy: wasteForm.recordedBy,
-      recordedAt: new Date().toISOString(),
-      notes: wasteForm.notes
-    };
-    
-    setWasteLogs(prev => [newWaste, ...prev]);
-    
-    // Create negative stock movement for waste
-    setStockMovements(prev => [{
-      id: `SM-${String(prev.length + 1).padStart(3, '0')}`,
-      itemId: item.id,
-      itemName: item.name,
-      type: 'waste',
-      quantity: -qty,
-      previousQty,
-      newQty,
-      date: new Date().toISOString().split('T')[0],
-      notes: wasteForm.notes || `Waste recorded: ${wasteForm.reason}`,
-      reference: newWaste.id
-    }, ...prev]);
-    
-    adjustQuantity(item.id, -qty);
-    addAuditLog(item.id, 'waste_recorded', item.quantity, newQty);
-    
-    // Reset form
-    setWasteForm({
-      itemId: '',
-      quantity: '',
-      reason: 'spoilage',
-      notes: '',
-      recordedBy: 'System'
-    });
-    
-    setShowWasteModal(false);
-  }, [items, wasteForm, calculateFifoCost, adjustQuantity, addAuditLog, wasteLogs]);
-
-  // --- TRANSFER FUNCTIONS ---
-  const openTransferModal = useCallback((item?: InventoryItemWithBatch) => {
-    setTransferForm({
-      itemId: item?.id || '',
-      quantity: '',
-      fromLocation: locations[0]?.id || '',
-      toLocation: locations[1]?.id || '',
-      notes: '',
-      requestedBy: 'System'
-    });
-    setShowTransferModal(true);
-  }, [locations]);
-
-  const createTransfer = useCallback(() => {
-    const item = items.find(i => i.id === transferForm.itemId);
-    if (!item || !transferForm.quantity) return;
-    
-    const qty = parseFloat(transferForm.quantity);
-    if (qty <= 0) return;
-    
-    const newTransfer: StockTransfer = {
-      id: `TRF-${String(transfers.length + 1).padStart(3, '0')}`,
-      itemId: item.id,
-      itemName: item.name,
-      quantity: qty,
-      fromLocation: transferForm.fromLocation,
-      toLocation: transferForm.toLocation,
-      status: 'requested',
-      requestedBy: transferForm.requestedBy,
-      requestedAt: new Date().toISOString(),
-      notes: transferForm.notes
-    };
-    
-    setTransfers(prev => [newTransfer, ...prev]);
-    addAuditLog(item.id, 'transfer_requested', null, newTransfer);
-    
-    setShowTransferModal(false);
-  }, [items, transferForm, addAuditLog, transfers]);
-
-  const approveTransfer = useCallback((transferId: string) => {
-    setTransfers(prev => prev.map(t => 
-      t.id === transferId ? { 
-        ...t, 
-        status: 'in_transit', 
-        acceptedBy: 'System User',
-        acceptedAt: new Date().toISOString()
-      } : t
-    ));
-  }, []);
-
-  const receiveTransfer = useCallback((transferId: string) => {
-    const transfer = transfers.find(t => t.id === transferId);
-    if (!transfer) return;
-
-    // Update inventory by moving quantity between locations
-    setItems(prevItems => prevItems.map(i => {
-      if (i.id === transfer.itemId) {
-        return { ...i, quantity: Math.max(0, i.quantity + transfer.quantity) };
-      }
-      return i;
-    }));
-
-    // Record stock movement
-    const item = items.find(i => i.id === transfer.itemId);
-    if (item) {
-      setStockMovements(prev => [{
-        id: `SM-${String(prev.length + 1).padStart(3, '0')}`,
-        itemId: item.id,
-        itemName: item.name,
-        type: 'transfer',
-        quantity: transfer.quantity,
-        previousQty: item.quantity,
-        newQty: item.quantity + transfer.quantity,
-        date: new Date().toISOString().split('T')[0],
-        notes: `Transfer from ${locations.find(l => l.id === transfer.fromLocation)?.name || transfer.fromLocation}`,
-        reference: transfer.id
-      }, ...prev]);
-    }
-
-    setTransfers(prev => prev.map(t => 
-      t.id === transferId ? { 
-        ...t, 
-        status: 'completed'
-      } : t
-    ));
-
-    addAuditLog(transfer.itemId, 'transfer_completed', null, transfer);
-  }, [transfers, items, locations, addAuditLog]);
-
-  const cancelTransfer = useCallback((transferId: string) => {
-    if (!confirm('Are you sure you want to cancel this transfer?')) return;
-    
-    setTransfers(prev => prev.map(t => 
-      t.id === transferId ? { 
-        ...t, 
-        status: 'cancelled' 
-      } : t
-    ));
-
-    const transfer = transfers.find(t => t.id === transferId);
-    if (transfer) {
-      addAuditLog(transfer.itemId, 'transfer_cancelled', null, transfer);
-    }
-  }, [transfers, addAuditLog]);
-
-  const acceptTransfer = useCallback((transferId: string) => {
-    setTransfers(prev => prev.map(t => 
-      t.id === transferId ? { 
-        ...t, 
-        status: 'completed', 
-        acceptedBy: 'System User',
-        acceptedAt: new Date().toISOString()
-      } : t
-    ));
-  }, []);
-
-  // --- BARCODE FUNCTIONS ---
-  const handleBarcodeScan = useCallback((barcode: string) => {
-    const item = items.find(i => i.barcode === barcode);
-    if (item) {
-      setSelectedItem(item);
-      openEditModal(item);
-    }
-    setScanMode(false);
-  }, [items, openEditModal]);
-
-  const generateBarcode = useCallback((itemId: string) => {
-    return `KILO-${itemId.padStart(8, '0')}`;
-  }, []);
-
-  // --- ADVANCED ADD ITEM MODAL STATE & FUNCTIONS ---
-  const [duplicateFromId, setDuplicateFromId] = useState<string>('');
-  const [activeTab, setActiveTab] = useState<'basic' | 'inventory' | 'tracking' | 'settings'>('basic');
-  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
-
-  // Quick presets for common inventory types
-  const inventoryPresets = [
-    { name: 'Food Ingredient', category: 'Ingredients', unit: 'kg', reorderLevel: 10, minStock: 5, maxStock: 50, location: 'Walk-in Cooler' },
-    { name: 'Dry Goods', category: 'Ingredients', unit: 'kg', reorderLevel: 20, minStock: 10, maxStock: 100, location: 'Dry Storage' },
-    { name: 'Beverage', category: 'Beverages', unit: 'bottles', reorderLevel: 24, minStock: 12, maxStock: 120, location: 'Bar Storage' },
-    { name: 'Cleaning Supply', category: 'Supplies', unit: 'pieces', reorderLevel: 5, minStock: 2, maxStock: 20, location: 'Janitor Closet' },
-    { name: 'Packaging', category: 'Supplies', unit: 'boxes', reorderLevel: 10, minStock: 5, maxStock: 50, location: 'Dry Storage' },
-    { name: 'Frozen Goods', category: 'Ingredients', unit: 'kg', reorderLevel: 8, minStock: 3, maxStock: 30, location: 'Freezer' },
+  const [activeTab, setActiveTab] = useState<TabType>('overview');
+  const [items] = useState<InventoryItem[]>(mockItems);
+  const [movements] = useState<StockMovement[]>(mockMovements);
+  const [purchaseOrders] = useState<PurchaseOrder[]>(mockPurchaseOrders);
+  const [forecasts] = useState<ForecastItem[]>(mockForecasts);
+  const [waste] = useState<WasteRecord[]>(mockWaste);
+  const [suppliers] = useState<Supplier[]>(mockSuppliers);
+  const [counts] = useState<InventoryCount[]>(mockCounts);
+  const [transfers] = useState<Transfer[]>(mockTransfers);
+  const [auditLogs] = useState<AuditLog[]>(mockAuditLogs);
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const tabs: { key: TabType; label: string }[] = [
+    { key: 'overview', label: 'Overview' },
+    { key: 'stock', label: 'Stock Items' },
+    { key: 'movements', label: 'Movements' },
+    { key: 'purchase-orders', label: 'Purchase Orders' },
+    { key: 'forecasting', label: 'Forecasting' },
+    { key: 'waste', label: 'Waste Tracking' },
+    { key: 'suppliers', label: 'Suppliers' },
+    { key: 'counts', label: 'Inventory Counts' },
+    { key: 'transfers', label: 'Transfers' },
+    { key: 'audit-logs', label: 'Audit Logs' },
   ];
 
-  // Real-time form validation
-  const validateField = useCallback((field: string, value: string) => {
-    const errors: Record<string, string> = {};
-    
-    switch(field) {
-      case 'name':
-        if (!value.trim()) errors.name = 'Item name is required';
-        else if (value.length < 2) errors.name = 'Name must be at least 2 characters';
-        break;
-      case 'quantity':
-        if (value && parseFloat(value) < 0) errors.quantity = 'Quantity cannot be negative';
-        break;
-      case 'costPerUnit':
-        if (value && parseFloat(value) < 0) errors.costPerUnit = 'Cost cannot be negative';
-        break;
-      case 'reorderLevel':
-        if (value && parseFloat(value) < 0) errors.reorderLevel = 'Reorder level cannot be negative';
-        break;
-      case 'minStock':
-        if (value && parseFloat(value) < 0) errors.minStock = 'Minimum stock cannot be negative';
-        break;
-      case 'maxStock':
-        if (value && formData.minStock && parseFloat(value) <= parseFloat(formData.minStock)) {
-          errors.maxStock = 'Max stock must be greater than min stock';
-        }
-        break;
-      case 'expiryDate':
-        if (value && new Date(value) < new Date()) {
-          errors.expiryDate = 'Expiry date cannot be in the past';
-        }
-        break;
+  const renderOverview = () => (
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+      <div className="bg-white p-4 rounded-lg shadow border">
+        <h3 className="text-sm font-medium text-gray-500">Total Items</h3>
+        <p className="text-2xl font-bold">{items.length}</p>
+      </div>
+      <div className="bg-white p-4 rounded-lg shadow border">
+        <h3 className="text-sm font-medium text-gray-500">Low Stock Alerts</h3>
+        <p className="text-2xl font-bold text-red-600">{items.filter(i => i.quantity < i.minLevel).length}</p>
+      </div>
+      <div className="bg-white p-4 rounded-lg shadow border">
+        <h3 className="text-sm font-medium text-gray-500">Open Purchase Orders</h3>
+        <p className="text-2xl font-bold text-blue-600">{purchaseOrders.filter(po => po.status === 'ordered').length}</p>
+      </div>
+      <div className="bg-white p-4 rounded-lg shadow border">
+        <h3 className="text-sm font-medium text-gray-500">Waste This Month</h3>
+        <p className="text-2xl font-bold">${waste.reduce((sum, w) => sum + w.cost, 0).toFixed(2)}</p>
+      </div>
+      
+      <div className="md:col-span-2 bg-white p-4 rounded-lg shadow border">
+        <h3 className="font-semibold mb-3">Low Stock Items</h3>
+        <div className="space-y-2">
+          {items.filter(i => i.quantity < i.minLevel).map(item => (
+            <div key={item.id} className="flex justify-between items-center p-2 bg-red-50 rounded">
+              <span className="font-medium">{item.name}</span>
+              <span className="text-red-600">{item.quantity} / {item.minLevel}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+      
+      <div className="md:col-span-2 bg-white p-4 rounded-lg shadow border">
+        <h3 className="font-semibold mb-3">Recent Movements</h3>
+        <div className="space-y-2">
+          {movements.slice(0, 3).map(mov => (
+            <div key={mov.id} className="flex justify-between items-center p-2 rounded hover:bg-gray-50">
+              <span>{mov.itemName}</span>
+              <span className={mov.type === 'in' ? 'text-green-600' : 'text-red-600'}>
+                {mov.type === 'in' ? '+' : '-'}{mov.quantity}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderStockItems = () => (
+    <div className="bg-white rounded-lg shadow border overflow-hidden">
+      <div className="p-4 border-b flex justify-between items-center">
+        <h3 className="font-semibold">Inventory Items</h3>
+        <input
+          type="text"
+          placeholder="Search items..."
+          className="px-3 py-2 border rounded text-sm"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+        />
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="bg-gray-50">
+            <tr>
+              <th className="px-4 py-3 text-left font-medium">SKU</th>
+              <th className="px-4 py-3 text-left font-medium">Name</th>
+              <th className="px-4 py-3 text-left font-medium">Category</th>
+              <th className="px-4 py-3 text-right font-medium">Quantity</th>
+              <th className="px-4 py-3 text-right font-medium">Unit Cost</th>
+              <th className="px-4 py-3 text-left font-medium">Location</th>
+              <th className="px-4 py-3 text-left font-medium">Status</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y">
+            {items.filter(i => i.name.toLowerCase().includes(searchQuery.toLowerCase())).map(item => (
+              <tr key={item.id} className="hover:bg-gray-50">
+                <td className="px-4 py-3">{item.sku}</td>
+                <td className="px-4 py-3 font-medium">{item.name}</td>
+                <td className="px-4 py-3">{item.category}</td>
+                <td className="px-4 py-3 text-right">{item.quantity}</td>
+                <td className="px-4 py-3 text-right">${item.unitCost.toFixed(2)}</td>
+                <td className="px-4 py-3">{item.location}</td>
+                <td className="px-4 py-3">
+                  {item.quantity < item.minLevel ? (
+                    <span className="px-2 py-1 text-xs rounded bg-red-100 text-red-700">Low Stock</span>
+                  ) : (
+                    <span className="px-2 py-1 text-xs rounded bg-green-100 text-green-700">Good</span>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+
+  const renderMovements = () => (
+    <div className="bg-white rounded-lg shadow border overflow-hidden">
+      <div className="p-4 border-b">
+        <h3 className="font-semibold">Stock Movements</h3>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="bg-gray-50">
+            <tr>
+              <th className="px-4 py-3 text-left font-medium">Date</th>
+              <th className="px-4 py-3 text-left font-medium">Item</th>
+              <th className="px-4 py-3 text-left font-medium">Type</th>
+              <th className="px-4 py-3 text-right font-medium">Quantity</th>
+              <th className="px-4 py-3 text-left font-medium">User</th>
+              <th className="px-4 py-3 text-left font-medium">Notes</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y">
+            {movements.map(mov => (
+              <tr key={mov.id} className="hover:bg-gray-50">
+                <td className="px-4 py-3">{mov.date}</td>
+                <td className="px-4 py-3 font-medium">{mov.itemName}</td>
+                <td className="px-4 py-3 capitalize">{mov.type}</td>
+                <td className={`px-4 py-3 text-right font-medium ${mov.type === 'in' ? 'text-green-600' : 'text-red-600'}`}>
+                  {mov.type === 'in' ? '+' : '-'}{mov.quantity}
+                </td>
+                <td className="px-4 py-3">{mov.user}</td>
+                <td className="px-4 py-3">{mov.notes}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+
+  const renderPurchaseOrders = () => (
+    <div className="bg-white rounded-lg shadow border overflow-hidden">
+      <div className="p-4 border-b">
+        <h3 className="font-semibold">Purchase Orders</h3>
+      </div>
+      <div className="divide-y">
+        {purchaseOrders.map(po => (
+          <div key={po.id} className="p-4">
+            <div className="flex justify-between items-center mb-2">
+              <div>
+                <span className="font-semibold">{po.id}</span>
+                <span className="ml-3 text-gray-500">{po.supplierName}</span>
+              </div>
+              <span className={`px-2 py-1 text-xs rounded ${
+                po.status === 'ordered' ? 'bg-blue-100 text-blue-700' : 
+                po.status === 'received' ? 'bg-green-100 text-green-700' : 'bg-gray-100'
+              }`}>
+                {po.status}
+              </span>
+            </div>
+            <div className="text-sm text-gray-500 mb-3">
+              Ordered: {po.orderDate} | Expected: {po.expectedDate} | Total: ${po.total.toFixed(2)}
+            </div>
+            <div className="space-y-1">
+              {po.items.map((item, idx) => (
+                <div key={idx} className="flex justify-between text-sm">
+                  <span>{item.name}</span>
+                  <span>{item.received} / {item.ordered}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  const renderForecasting = () => (
+    <div className="bg-white rounded-lg shadow border overflow-hidden">
+      <div className="p-4 border-b">
+        <h3 className="font-semibold">Demand Forecasting</h3>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="bg-gray-50">
+            <tr>
+              <th className="px-4 py-3 text-left font-medium">Item</th>
+              <th className="px-4 py-3 text-right font-medium">Current Stock</th>
+              <th className="px-4 py-3 text-right font-medium">Weekly Usage</th>
+              <th className="px-4 py-3 text-left font-medium">Projected Stockout</th>
+              <th className="px-4 py-3 text-right font-medium">Recommended Order</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y">
+            {forecasts.map(fc => (
+              <tr key={fc.itemId} className="hover:bg-gray-50">
+                <td className="px-4 py-3 font-medium">{fc.itemName}</td>
+                <td className="px-4 py-3 text-right">{fc.currentStock}</td>
+                <td className="px-4 py-3 text-right">{fc.weeklyUsage}</td>
+                <td className="px-4 py-3">{fc.projectedStockout}</td>
+                <td className="px-4 py-3 text-right font-medium text-blue-600">{fc.recommendedOrder}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+
+  const renderWaste = () => (
+    <div className="bg-white rounded-lg shadow border overflow-hidden">
+      <div className="p-4 border-b">
+        <h3 className="font-semibold">Waste Tracking</h3>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="bg-gray-50">
+            <tr>
+              <th className="px-4 py-3 text-left font-medium">Date</th>
+              <th className="px-4 py-3 text-left font-medium">Item</th>
+              <th className="px-4 py-3 text-right font-medium">Quantity</th>
+              <th className="px-4 py-3 text-left font-medium">Reason</th>
+              <th className="px-4 py-3 text-left font-medium">User</th>
+              <th className="px-4 py-3 text-right font-medium">Cost</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y">
+            {waste.map(w => (
+              <tr key={w.id} className="hover:bg-gray-50">
+                <td className="px-4 py-3">{w.date}</td>
+                <td className="px-4 py-3 font-medium">{w.itemName}</td>
+                <td className="px-4 py-3 text-right">{w.quantity}</td>
+                <td className="px-4 py-3">{w.reason}</td>
+                <td className="px-4 py-3">{w.user}</td>
+                <td className="px-4 py-3 text-right">${w.cost.toFixed(2)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+
+  const renderSuppliers = () => (
+    <div className="bg-white rounded-lg shadow border overflow-hidden">
+      <div className="p-4 border-b">
+        <h3 className="font-semibold">Suppliers</h3>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="bg-gray-50">
+            <tr>
+              <th className="px-4 py-3 text-left font-medium">Name</th>
+              <th className="px-4 py-3 text-left font-medium">Contact</th>
+              <th className="px-4 py-3 text-left font-medium">Email</th>
+              <th className="px-4 py-3 text-left font-medium">Phone</th>
+              <th className="px-4 py-3 text-right font-medium">Lead Time</th>
+              <th className="px-4 py-3 text-left font-medium">Status</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y">
+            {suppliers.map(s => (
+              <tr key={s.id} className="hover:bg-gray-50">
+                <td className="px-4 py-3 font-medium">{s.name}</td>
+                <td className="px-4 py-3">{s.contact}</td>
+                <td className="px-4 py-3">{s.email}</td>
+                <td className="px-4 py-3">{s.phone}</td>
+                <td className="px-4 py-3 text-right">{s.leadTime} days</td>
+                <td className="px-4 py-3">
+                  <span className={`px-2 py-1 text-xs rounded ${s.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'}`}>
+                    {s.status}
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+
+  const renderCounts = () => (
+    <div className="bg-white rounded-lg shadow border overflow-hidden">
+      <div className="p-4 border-b">
+        <h3 className="font-semibold">Inventory Counts</h3>
+      </div>
+      <div className="divide-y">
+        {counts.map(count => (
+          <div key={count.id} className="p-4">
+            <div className="flex justify-between items-center mb-2">
+              <div className="font-semibold">{count.name}</div>
+              <span className={`px-2 py-1 text-xs rounded ${
+                count.status === 'completed' ? 'bg-green-100 text-green-700' :
+                count.status === 'in-progress' ? 'bg-blue-100 text-blue-700' : 'bg-yellow-100 text-yellow-700'
+              }`}>
+                {count.status}
+              </span>
+            </div>
+            <div className="text-sm text-gray-500">
+              Date: {count.date} | Items: {count.itemsCounted}/{count.totalItems}
+              {count.status === 'completed' && <span className="ml-3">Variance: ${count.variance.toFixed(2)}</span>}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  const renderTransfers = () => (
+    <div className="bg-white rounded-lg shadow border overflow-hidden">
+      <div className="p-4 border-b">
+        <h3 className="font-semibold">Stock Transfers</h3>
+      </div>
+      <div className="divide-y">
+        {transfers.map(tf => (
+          <div key={tf.id} className="p-4">
+            <div className="flex justify-between items-center mb-2">
+              <div>
+                <span className="font-semibold">{tf.id}</span>
+                <span className="mx-2 text-gray-400">→</span>
+                <span className="text-gray-600">{tf.fromLocation} → {tf.toLocation}</span>
+              </div>
+              <span className={`px-2 py-1 text-xs rounded ${
+                tf.status === 'completed' ? 'bg-green-100 text-green-700' :
+                tf.status === 'in-transit' ? 'bg-blue-100 text-blue-700' : 'bg-yellow-100 text-yellow-700'
+              }`}>
+                {tf.status}
+              </span>
+            </div>
+            <div className="text-sm text-gray-500 mb-2">Date: {tf.date}</div>
+            <div className="space-y-1">
+              {tf.items.map((item, idx) => (
+                <div key={idx} className="flex justify-between text-sm">
+                  <span>{item.name}</span>
+                  <span>{item.quantity}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  const renderAuditLogs = () => (
+    <div className="bg-white rounded-lg shadow border overflow-hidden">
+      <div className="p-4 border-b">
+        <h3 className="font-semibold">Audit Logs</h3>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="bg-gray-50">
+            <tr>
+              <th className="px-4 py-3 text-left font-medium">Timestamp</th>
+              <th className="px-4 py-3 text-left font-medium">Action</th>
+              <th className="px-4 py-3 text-left font-medium">Item</th>
+              <th className="px-4 py-3 text-left font-medium">Previous</th>
+              <th className="px-4 py-3 text-left font-medium">New</th>
+              <th className="px-4 py-3 text-left font-medium">User</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y">
+            {auditLogs.map(log => (
+              <tr key={log.id} className="hover:bg-gray-50">
+                <td className="px-4 py-3">{log.timestamp}</td>
+                <td className="px-4 py-3 font-medium">{log.action}</td>
+                <td className="px-4 py-3">{log.itemName}</td>
+                <td className="px-4 py-3 text-gray-500">{log.previousValue}</td>
+                <td className="px-4 py-3 font-medium">{log.newValue}</td>
+                <td className="px-4 py-3">{log.user}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+
+  const renderActiveTab = () => {
+    switch (activeTab) {
+      case 'overview': return renderOverview();
+      case 'stock': return renderStockItems();
+      case 'movements': return renderMovements();
+      case 'purchase-orders': return renderPurchaseOrders();
+      case 'forecasting': return renderForecasting();
+      case 'waste': return renderWaste();
+      case 'suppliers': return renderSuppliers();
+      case 'counts': return renderCounts();
+      case 'transfers': return renderTransfers();
+      case 'audit-logs': return renderAuditLogs();
+      default: return renderOverview();
     }
-
-    setFormErrors(prev => ({ ...prev, ...errors }));
-    return Object.keys(errors).length === 0;
-  }, [formData.minStock]);
-
-  // Auto-fill when selecting duplicate item
-  const handleDuplicateSelect = useCallback((itemId: string) => {
-    if (!itemId) return;
-    const item = items.find(i => i.id === itemId);
-    if (item) {
-      setFormData({
-        name: `${item.name} (Copy)`,
-        category: item.category,
-        quantity: '',
-        unit: item.unit,
-        reorderLevel: item.reorderLevel.toString(),
-        costPerUnit: item.costPerUnit.toString(),
-        salePrice: item.salePrice?.toString() || '',
-        expiryDate: '',
-        batchNumber: '',
-        receivedDate: new Date().toISOString().split('T')[0],
-        barcode: '',
-        location: item.location || '',
-        minStock: (item.lowStockThreshold || item.reorderLevel * 0.5).toString(),
-        maxStock: (item.reorderLevel * 3).toString(),
-        supplier: '',
-      });
-    }
-    setDuplicateFromId('');
-  }, [items]);
-
-  // Apply preset configuration
-  const applyPreset = useCallback((preset: typeof inventoryPresets[0]) => {
-    setFormData(prev => ({
-      ...prev,
-      category: preset.category,
-      unit: preset.unit,
-      reorderLevel: preset.reorderLevel.toString(),
-      minStock: preset.minStock.toString(),
-      maxStock: preset.maxStock.toString(),
-      location: preset.location,
-    }));
-  }, []);
-
-  // Auto-generate fields helper
-  const autoGenerateFields = useCallback(() => {
-    const updates: Partial<typeof formData> = {};
-    
-    // Auto-generate batch number if empty
-    if (!formData.batchNumber) {
-      updates.batchNumber = `BATCH-${new Date().toISOString().slice(0,10).replace(/-/g, '')}-${String(Math.floor(Math.random() * 1000)).padStart(3, '0')}`;
-    }
-    
-    // Auto-generate barcode if empty
-    if (!formData.barcode) {
-      updates.barcode = generateBarcode(String(items.length + 1));
-    }
-    
-    // Auto-set received date to today if empty
-    if (!formData.receivedDate) {
-      updates.receivedDate = new Date().toISOString().split('T')[0];
-    }
-
-    // Auto-calculate min/max stock if only reorder level is set
-    if (formData.reorderLevel && !formData.minStock && !formData.maxStock) {
-      const reorder = parseFloat(formData.reorderLevel);
-      updates.minStock = Math.round(reorder * 0.5).toString();
-      updates.maxStock = Math.round(reorder * 3).toString();
-    }
-
-    setFormData(prev => ({ ...prev, ...updates }));
-  }, [formData, items.length, generateBarcode]);
-
-  const deleteOrder = useCallback((orderId: string) => {
-    if (confirm('Are you sure you want to delete this order?')) {
-      setPurchaseOrders(prevOrders => prevOrders.filter(o => o.id !== orderId));
-    }
-  }, []);
-
-  const getOrdersByStatus = useCallback((status: PurchaseOrder['status']) => {
-    return purchaseOrders.filter(o => o.status === status);
-  }, [purchaseOrders]);
-
-  const pendingTotal = useMemo(() => getOrdersByStatus('pending').reduce((sum, o) => sum + o.total, 0), [getOrdersByStatus]);
-  const orderedTotal = useMemo(() => getOrdersByStatus('ordered').reduce((sum, o) => sum + o.total, 0), [getOrdersByStatus]);
-
-  // Stock movement functions
-  const getFilteredMovements = useCallback(() => {
-    return stockMovements.filter(m => {
-      const matchesType = movementFilter === 'all' || m.type === movementFilter;
-      const matchesItem = movementItemFilter === 'all' || m.itemId === movementItemFilter;
-      const matchesDate = !movementDateFilter || m.date === movementDateFilter;
-      return matchesType && matchesItem && matchesDate;
-    }).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [stockMovements, movementFilter, movementItemFilter, movementDateFilter]);
-
-  const openMovementModal = useCallback(() => {
-    setMovementForm({ itemId: '', type: 'received', quantity: '', notes: '', reference: '' });
-    setShowMovementModal(true);
-  }, []);
-
-  const saveMovement = useCallback(() => {
-    const item = items.find(i => i.id === movementForm.itemId);
-    if (!item || !movementForm.quantity || parseInt(movementForm.quantity) === 0) return;
-
-    const qty = parseInt(movementForm.quantity);
-    let qtyChange = qty;
-
-    // For non-received types, treat positive input as reduction
-    if (movementForm.type !== 'received') {
-      qtyChange = -Math.abs(qty);
-    }
-
-    const previousQty = item.quantity;
-    const newQty = Math.max(0, previousQty + qtyChange);
-
-    setStockMovements(prevMovements => {
-      const newMovement: StockMovement = {
-        id: `SM-${String(prevMovements.length + 1).padStart(3, '0')}`,
-        itemId: item.id,
-        itemName: item.name,
-        type: movementForm.type,
-        quantity: qtyChange,
-        previousQty,
-        newQty,
-        date: new Date().toISOString().split('T')[0],
-        notes: movementForm.notes,
-        reference: movementForm.reference || undefined
-      };
-      return [...prevMovements, newMovement];
-    });
-    
-    adjustQuantity(item.id, qtyChange);
-    setShowMovementModal(false);
-  }, [items, movementForm, adjustQuantity]);
-
-  const getMovementTypeColor = useCallback((type: StockMovement['type']) => {
-    switch (type) {
-      case 'received': return 'badge-available';
-      case 'used': return 'badge-in_progress';
-      case 'adjustment': return 'badge-pending';
-      case 'waste': return 'badge-cancelled';
-      case 'transfer': return 'badge-warning';
-      case 'order_consumption': return 'badge-in_progress';
-      default: return '';
-    }
-  }, []);
-
-  const getExpiryBadge = useCallback((item: InventoryItemWithBatch) => {
-    const status = getExpiryStatus(item);
-    if (!status || status === 'ok') return null;
-    
-    const days = item.expiryDate ? daysUntilDate(item.expiryDate) : 0;
-    
-    if (status === 'expired') {
-      return <span className="badge badge-cancelled">Expired</span>;
-    }
-    if (status === 'critical') {
-      return <span className="badge badge-cancelled">{days}d left</span>;
-    }
-    if (status === 'warning') {
-      return <span className="badge badge-pending">{days}d left</span>;
-    }
-    return null;
-  }, [getExpiryStatus]);
+  };
 
   return (
-    <>
-      {/* Active Alerts Banner */}
-      {showAlertsBanner && activeAlerts.length > 0 && (
-        <div style={{ 
-          background: 'var(--warning-bg)', 
-          padding: '12px 16px', 
-          borderRadius: '8px', 
-          marginBottom: '16px',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center'
-        }}>
-          <div>
-            <strong>⚠️ {activeAlerts.length} active alerts:</strong> {lowStockItems.length} low stock items, {expiringItems.filter(i => getExpiryStatus(i) === 'expired').length} expired items
-          </div>
-          <button 
-            className="btn btn-secondary" 
-            style={{ padding: '4px 12px' }}
-            onClick={() => { setView('alerts'); setShowAlertsBanner(false); }}
-          >
-            View Alerts
-          </button>
-        </div>
-      )}
-
-      <div className="page-header">
-        <h1 className="page-title">Inventory</h1>
-        <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
-          {lowStockItems.length > 0 && (
-            <span className="badge badge-pending" style={{ fontSize: '14px' }}>
-              {lowStockItems.length} items low on stock
-            </span>
-          )}
-          {expiringItems.some(i => getExpiryStatus(i) === 'expired') && (
-            <span className="badge badge-cancelled" style={{ fontSize: '14px' }}>
-              {expiringItems.filter(i => getExpiryStatus(i) === 'expired').length} expired items
-            </span>
-          )}
-           <button className="btn btn-primary" onClick={openAddModal}>
-             + Add Item
-           </button>
-           <button className="btn btn-secondary" onClick={() => openCountModal()}>
-             New Count
-           </button>
-        </div>
+    <div className="p-6 max-w-7xl mx-auto">
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold mb-2">Inventory Management</h1>
+        <p className="text-gray-600">Track stock levels, movements, orders, and inventory operations.</p>
       </div>
 
-      <div className="tabs">
-        <button className={`tab ${view === 'list' ? 'active' : ''}`} onClick={() => setView('list')}>All Items</button>
-        <button className={`tab ${view === 'low-stock' ? 'active' : ''}`} onClick={() => setView('low-stock')}>
-          Low Stock {lowStockItems.length > 0 && `(${lowStockItems.length})`}
-        </button>
-        <button className={`tab ${view === 'forecasting' ? 'active' : ''}`} onClick={() => setView('forecasting')}>
-          Forecasting
-        </button>
-        <button className={`tab ${view === 'waste' ? 'active' : ''}`} onClick={() => setView('waste')}>
-          Waste {wasteLogs.length > 0 && `(${wasteLogs.length})`}
-        </button>
-        <button className={`tab ${view === 'suppliers' ? 'active' : ''}`} onClick={() => setView('suppliers')}>
-          Suppliers
-        </button>
-        <button className={`tab ${view === 'transfers' ? 'active' : ''}`} onClick={() => setView('transfers')}>
-          Transfers
-        </button>
-        <button className={`tab ${view === 'audit' ? 'active' : ''}`} onClick={() => setView('audit')}>
-          Audit Log
-        </button>
-        <button className={`tab ${view === 'alerts' ? 'active' : ''}`} onClick={() => setView('alerts')}>
-          Alerts {activeAlerts.length > 0 && `(${activeAlerts.length})`}
-        </button>
-        <button className={`tab ${view === 'counts' ? 'active' : ''}`} onClick={() => setView('counts')}>
-          Counts {countLogs.filter(l => l.status === 'pending').length > 0 && `(${countLogs.filter(l => l.status === 'pending').length})`}
-        </button>
-        <button className={`tab ${view === 'orders' ? 'active' : ''}`} onClick={() => setView('orders')}>
-          Orders {purchaseOrders.filter(o => o.status === 'pending' || o.status === 'ordered').length > 0 && `(${purchaseOrders.filter(o => o.status === 'pending' || o.status === 'ordered').length})`}
-        </button>
-        <button className={`tab ${view === 'valuation' ? 'active' : ''}`} onClick={() => setView('valuation')}>Valuation</button>
-        <button className={`tab ${view === 'movements' ? 'active' : ''}`} onClick={() => setView('movements')}>
-          Movements {stockMovements.length > 0 && `(${stockMovements.length})`}
-        </button>
-      </div>
-
-      {view === 'list' && (
-        <>
-          <div className="filter-bar">
-            <input 
-              className="form-input" 
-              style={{ width: '300px' }}
-              placeholder="Search items..." 
-              value={searchTerm}
-              onChange={e => setSearchTerm(e.target.value)}
-            />
-            <select className="form-select" style={{ width: '150px' }} value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)}>
-              <option value="all">All Categories</option>
-              <option value="Ingredients">Ingredients</option>
-              <option value="Supplies">Supplies</option>
-              <option value="Beverages">Beverages</option>
-            </select>
-            <select className="form-select" style={{ width: '150px' }} value={sortBy} onChange={e => setSortBy(e.target.value as 'name' | 'quantity' | 'cost' | 'expiry')}>
-              <option value="name">Sort by Name</option>
-              <option value="quantity">Sort by Quantity</option>
-              <option value="cost">Sort by Cost</option>
-              <option value="expiry">Sort by Expiry</option>
-            </select>
-            <button className="btn btn-secondary" onClick={() => setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}>
-              {sortOrder === 'asc' ? '↑' : '↓'}
+      <div className="mb-6 overflow-x-auto">
+        <div className="flex space-x-1 bg-gray-100 p-1 rounded-lg">
+          {tabs.map(tab => (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors whitespace-nowrap ${
+                activeTab === tab.key
+                  ? 'bg-white shadow text-blue-600'
+                  : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+              }`}
+            >
+              {tab.label}
             </button>
-            <button className="btn btn-secondary" onClick={exportInventory}>
-              Export CSV
-            </button>
-            {selectedItems.length > 0 && (
-              <button className="btn btn-secondary" style={{ color: 'var(--danger)' }} onClick={deleteSelectedItems}>
-                Delete Selected ({selectedItems.length})
-              </button>
-            )}
-          </div>
-
-          <div className="data-card">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th style={{ width: '40px' }}>
-                    <input type="checkbox" checked={selectedItems.length === filteredItems.length && filteredItems.length > 0} onChange={selectAllItems} />
-                  </th>
-                  <th>Item</th>
-                  <th>Category</th>
-                  <th>Quantity</th>
-                  <th>Unit</th>
-                  <th>Batch</th>
-                  <th>Expiry</th>
-                  <th>Reorder Level</th>
-                  <th>Cost/Unit</th>
-                  <th>Total Value</th>
-                  <th>Status</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredItems.map(item => {
-                  const stockStatus = getStockStatus(item);
-                  const expiryStatus = getExpiryStatus(item);
-                  return (
-                    <tr key={item.id}>
-                      <td>
-                        <input type="checkbox" checked={selectedItems.includes(item.id)} onChange={() => toggleSelectItem(item.id)} />
-                      </td>
-                      <td>{item.name}</td>
-                      <td>{item.category}</td>
-                      <td className="mono" style={{ color: stockStatus === 'out-of-stock' ? 'var(--danger)' : stockStatus === 'low-stock' ? 'var(--warning)' : 'inherit' }}>
-                        {item.quantity}
-                      </td>
-                      <td>{item.unit}</td>
-                      <td className="mono">{item.batchNumber || '-'}</td>
-                      <td>
-                        {item.expiryDate && (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                            <span className="mono">{item.expiryDate}</span>
-                            {getExpiryBadge(item)}
-                          </div>
-                        )}
-                      </td>
-                      <td>{item.reorderLevel}</td>
-                      <td className="mono">{formatCurrency(item.costPerUnit)}</td>
-                      <td className="mono">{formatCurrency(item.quantity * item.costPerUnit)}</td>
-                      <td>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                          <span className={`badge ${
-                            stockStatus === 'out-of-stock' ? 'badge-cancelled' :
-                            stockStatus === 'low-stock' ? 'badge-pending' :
-                            'badge-available'
-                          }`}>
-                            {stockStatus === 'out-of-stock' ? 'Out of Stock' : stockStatus === 'low-stock' ? 'Low Stock' : 'In Stock'}
-                          </span>
-                        </div>
-                      </td>
-                      <td>
-                        <button className="action-btn edit" onClick={() => openEditModal(item)}>Edit</button>
-                        <button className="action-btn" style={{ marginLeft: '8px' }} onClick={() => openCountModal(item)}>
-                          Count
-                        </button>
-                        <button className="action-btn" style={{ marginLeft: '8px' }} onClick={() => openHistoryModal(item)}>
-                          History
-                        </button>
-                        <button className="action-btn" style={{ marginLeft: '8px', color: 'var(--danger)' }} onClick={() => deleteItem(item.id)}>
-                          Delete
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-            {filteredItems.length === 0 && (
-              <div className="empty-state">
-                <div className="empty-state-text">No items found</div>
-              </div>
-            )}
-          </div>
-        </>
-      )}
-
-      {view === 'alerts' && (
-        <div className="data-card">
-          <div className="data-card-header">
-            <h3 className="data-card-title">Active Alerts</h3>
-          </div>
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Item</th>
-                <th>Current Quantity</th>
-                <th>Threshold</th>
-                <th>Status</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {alerts.map(alert => {
-                const item = items.find(i => i.id === alert.itemId);
-                return (
-                  <tr key={alert.id} style={{ opacity: alert.acknowledged ? 0.5 : 1 }}>
-                    <td className="mono">{new Date(alert.createdAt).toLocaleDateString()}</td>
-                    <td>{alert.itemName}</td>
-                    <td className="mono">{alert.currentQuantity} {item?.unit}</td>
-                    <td className="mono">{alert.threshold} {item?.unit}</td>
-                    <td>
-                      <span className={`badge ${alert.acknowledged ? 'badge-available' : 'badge-pending'}`}>
-                        {alert.acknowledged ? 'Acknowledged' : 'Active'}
-                      </span>
-                    </td>
-                    <td>
-                      {!alert.acknowledged && (
-                        <button className="btn btn-secondary" onClick={() => acknowledgeAlert(alert.id)}>
-                          Acknowledge
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-          {alerts.length === 0 && (
-            <div className="empty-state">
-              <div className="empty-state-text">No alerts</div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {view === 'counts' && (
-        <div className="data-card">
-          <div className="data-card-header">
-            <h3 className="data-card-title">Inventory Count History</h3>
-          </div>
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Item</th>
-                <th>System Qty</th>
-                <th>Counted Qty</th>
-                <th>Variance</th>
-                <th>Variance %</th>
-                <th>Status</th>
-                <th>Counted By</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {countLogs.map(log => (
-                <tr key={log.id}>
-                  <td className="mono">{new Date(log.countedAt).toLocaleDateString()}</td>
-                  <td>{log.itemName}</td>
-                  <td className="mono">{log.systemQuantity}</td>
-                  <td className="mono">{log.countedQuantity}</td>
-                  <td className="mono" style={{ color: log.variance >= 0 ? 'var(--success)' : 'var(--danger)' }}>
-                    {log.variance >= 0 ? '+' : ''}{log.variance.toFixed(2)}
-                  </td>
-                  <td className="mono">{log.variancePercent.toFixed(1)}%</td>
-                  <td>
-                    <span className={`badge ${
-                      log.status === 'approved' ? 'badge-available' :
-                      log.status === 'rejected' ? 'badge-cancelled' :
-                      'badge-pending'
-                    }`}>
-                      {log.status}
-                    </span>
-                  </td>
-                  <td>{log.countedBy}</td>
-                  <td>
-                    {log.status === 'pending' && (
-                      <>
-                        <button className="btn btn-primary" onClick={() => approveCountAdjustment(log.id)}>
-                          Approve
-                        </button>
-                        <button className="btn btn-secondary" style={{ marginLeft: '8px', color: 'var(--danger)' }} onClick={() => rejectCountAdjustment(log.id)}>
-                          Reject
-                        </button>
-                      </>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {countLogs.length === 0 && (
-            <div className="empty-state">
-              <div className="empty-state-text">No inventory counts recorded</div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {view === 'orders' && (
-        <>
-          <div className="stat-grid" style={{ marginBottom: '24px' }}>
-            <div className="stat-card" style={{ background: 'var(--warning)' }}>
-              <div className="stat-value" style={{ fontSize: '32px' }}>{pendingTotal}</div>
-              <div className="stat-label">Pending</div>
-            </div>
-            <div className="stat-card" style={{ background: 'var(--primary)' }}>
-              <div className="stat-value" style={{ fontSize: '32px' }}>{orderedTotal}</div>
-              <div className="stat-label">Ordered</div>
-            </div>
-            <div className="stat-card" style={{ background: 'var(--success)' }}>
-              <div className="stat-value" style={{ fontSize: '32px' }}>
-                {purchaseOrders.filter(o => o.status === 'received').length}
-              </div>
-              <div className="stat-label">Received</div>
-            </div>
-          </div>
-
-          <div className="filter-bar">
-            <select className="form-select" style={{ width: '150px' }} value={orderStatusFilter} onChange={e => setOrderStatusFilter(e.target.value)}>
-              <option value="all">All Orders</option>
-              <option value="pending">Pending</option>
-              <option value="ordered">Ordered</option>
-              <option value="received">Received</option>
-              <option value="cancelled">Cancelled</option>
-            </select>
-            <button className="btn btn-primary" onClick={openRestockModal}>
-              Create Restock Order
-            </button>
-          </div>
-
-          <div className="data-card">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Order ID</th>
-                  <th>Date</th>
-                  <th>Supplier</th>
-                  <th>Items</th>
-                  <th>Total</th>
-                  <th>Status</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {purchaseOrders
-                  .filter(o => orderStatusFilter === 'all' || o.status === orderStatusFilter)
-                  .map(order => (
-                    <tr key={order.id}>
-                      <td className="mono">{order.id}</td>
-                      <td>{order.createdAt}</td>
-                      <td>{order.supplier}</td>
-                      <td>
-                        {order.items.map((item, idx) => (
-                          <div key={idx} style={{ fontSize: '14px' }}>
-                            {item.name} x{item.quantity}
-                          </div>
-                        ))}
-                      </td>
-                      <td className="mono" style={{ fontWeight: '600' }}>{formatCurrency(order.total)}</td>
-                      <td>
-                        <span className={`badge ${
-                          order.status === 'pending' ? 'badge-pending' :
-                          order.status === 'ordered' ? 'badge-in_progress' :
-                          order.status === 'received' ? 'badge-available' :
-                          'badge-cancelled'
-                        }`}>
-                          {order.status}
-                        </span>
-                      </td>
-                      <td>
-                        {order.status === 'pending' && (
-                          <>
-                            <button className="action-btn edit" onClick={() => updateOrderStatus(order.id, 'ordered')}>Order</button>
-                            <button className="action-btn" style={{ marginLeft: '8px', color: 'var(--danger)' }} onClick={() => cancelOrder(order.id)}>Cancel</button>
-                          </>
-                        )}
-                        {order.status === 'ordered' && (
-                          <>
-                            <button className="btn btn-primary" onClick={() => receiveOrder(order.id)}>Receive</button>
-                            <button className="action-btn" style={{ marginLeft: '8px', color: 'var(--danger)' }} onClick={() => cancelOrder(order.id)}>Cancel</button>
-                          </>
-                        )}
-                        {order.status === 'received' && (
-                          <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Completed</span>
-                        )}
-                        {order.status === 'cancelled' && (
-                          <button className="action-btn" style={{ color: 'var(--danger)' }} onClick={() => deleteOrder(order.id)}>Delete</button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-              </tbody>
-            </table>
-          </div>
-        </>
-      )}
-
-      {view === 'low-stock' && (
-        <div className="data-card">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Item</th>
-                <th>Category</th>
-                <th>Current Qty</th>
-                <th>Reorder Level</th>
-                <th>Needed</th>
-                <th>Est. Cost</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {lowStockItems.map(item => {
-                const needed = item.reorderLevel - item.quantity + 5;
-                return (
-                  <tr key={item.id}>
-                    <td>{item.name}</td>
-                    <td>{item.category}</td>
-                    <td className="mono" style={{ color: 'var(--danger)' }}>{item.quantity}</td>
-                    <td>{item.reorderLevel}</td>
-                    <td>{needed}</td>
-                    <td className="mono">{formatCurrency(needed * item.costPerUnit)}</td>
-                    <td>
-                      <button className="btn btn-primary" onClick={() => adjustQuantity(item.id, needed)}>
-                        Order Now
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {view === 'valuation' && (
-        <div className="grid-2">
-          <div className="data-card">
-            <div className="data-card-header">
-              <h3 className="data-card-title">Total Inventory Value</h3>
-            </div>
-            <div style={{ padding: '24px', textAlign: 'center' }}>
-              <div className="stat-value" style={{ fontSize: '48px', color: 'var(--primary)' }}>
-                {formatCurrency(totalValue)}
-              </div>
-              <div className="stat-label">Total Value</div>
-            </div>
-          </div>
-
-          <div className="data-card">
-            <div className="data-card-header">
-              <h3 className="data-card-title">Value by Category</h3>
-            </div>
-            <div style={{ padding: '24px' }}>
-              {Object.entries(categoryValues).map(([category, value]) => {
-                const percentage = (value / totalValue) * 100;
-                return (
-                  <div key={category} style={{ marginBottom: '16px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                      <span>{category}</span>
-                      <span className="mono">{formatCurrency(value)} ({percentage.toFixed(1)}%)</span>
-                    </div>
-                    <div style={{ height: '8px', background: 'var(--bg-elevated)', borderRadius: '4px', overflow: 'hidden' }}>
-                      <div style={{ width: `${percentage}%`, height: '100%', background: 'var(--primary)', borderRadius: '4px' }} />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          <div className="data-card" style={{ gridColumn: 'span 2' }}>
-            <div className="data-card-header">
-              <h3 className="data-card-title">Item Valuation Details</h3>
-            </div>
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Item</th>
-                  <th>Category</th>
-                  <th>Quantity</th>
-                  <th>Cost/Unit</th>
-                  <th>Total Value</th>
-                </tr>
-              </thead>
-              <tbody>
-                {items.sort((a, b) => (b.quantity * b.costPerUnit) - (a.quantity * a.costPerUnit)).map(item => (
-                  <tr key={item.id}>
-                    <td>{item.name}</td>
-                    <td>{item.category}</td>
-                    <td className="mono">{item.quantity} {item.unit}</td>
-                    <td className="mono">{formatCurrency(item.costPerUnit)}</td>
-                    <td className="mono" style={{ fontWeight: '600' }}>{formatCurrency(item.quantity * item.costPerUnit)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-       {view === 'movements' && (
-        <>
-          <div style={{ marginBottom: '24px', display: 'flex', gap: '16px', alignItems: 'center', flexWrap: 'wrap' }}>
-            <button className="btn btn-primary" onClick={openMovementModal}>+ Record Movement</button>
-            <select className="form-select" style={{ width: '150px' }} value={movementFilter} onChange={e => setMovementFilter(e.target.value)}>
-              <option value="all">All Types</option>
-              <option value="received">Received</option>
-              <option value="used">Used</option>
-              <option value="adjustment">Adjustment</option>
-              <option value="waste">Waste</option>
-              <option value="transfer">Transfer</option>
-              <option value="order_consumption">Order Consumption</option>
-            </select>
-            <select className="form-select" style={{ width: '180px' }} value={movementItemFilter} onChange={e => setMovementItemFilter(e.target.value)}>
-              <option value="all">All Items</option>
-              {items.map(i => (
-                <option key={i.id} value={i.id}>{i.name}</option>
-              ))}
-            </select>
-            <input 
-              type="date" 
-              className="form-input" 
-              style={{ width: '160px' }}
-              value={movementDateFilter} 
-              onChange={e => setMovementDateFilter(e.target.value)}
-            />
-          </div>
-
-          <div className="data-card">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Item</th>
-                  <th>Type</th>
-                  <th>Change</th>
-                  <th>Previous</th>
-                  <th>New</th>
-                  <th>Reference</th>
-                  <th>Notes</th>
-                </tr>
-              </thead>
-              <tbody>
-                {getFilteredMovements().map(movement => (
-                  <tr key={movement.id}>
-                    <td className="mono">{movement.date}</td>
-                    <td>{movement.itemName}</td>
-                    <td>
-                      <span className={`badge ${getMovementTypeColor(movement.type)}`}>
-                        {movement.type === 'order_consumption' ? 'Order Use' : movement.type}
-                      </span>
-                    </td>
-                    <td className="mono" style={{ color: movement.quantity >= 0 ? 'var(--success)' : 'var(--danger)' }}>
-                      {movement.quantity >= 0 ? '+' : ''}{movement.quantity.toFixed(2)}
-                    </td>
-                    <td className="mono">{movement.previousQty.toFixed(2)}</td>
-                    <td className="mono">{movement.newQty.toFixed(2)}</td>
-                    <td>{movement.reference || '-'}</td>
-                    <td style={{ maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {movement.notes || '-'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {getFilteredMovements().length === 0 && (
-              <div className="empty-state">
-                <div className="empty-state-text">No movements found</div>
-              </div>
-            )}
-          </div>
-        </>
-      )}
-
-      {/* FORECASTING VIEW */}
-      {view === 'forecasting' && (
-        <div className="data-card">
-          <div className="data-card-header">
-            <h3 className="data-card-title">Demand Forecasting & Smart Reordering</h3>
-          </div>
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Item</th>
-                <th>Current Stock</th>
-                <th>Daily Usage Rate</th>
-                <th>Days Until Stockout</th>
-                <th>Safety Stock</th>
-                <th>Reorder Point</th>
-                <th>Recommended Qty</th>
-                <th>Status</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {forecastData.map(f => (
-                <tr key={f.itemId}>
-                  <td>{f.itemName}</td>
-                  <td className="mono">{f.currentStock.toFixed(1)}</td>
-                  <td className="mono">{f.dailyUsageRate.toFixed(2)} / day</td>
-                  <td className="mono" style={{ color: f.daysUntilExhaustion < 7 ? 'var(--danger)' : f.daysUntilExhaustion < 14 ? 'var(--warning)' : 'var(--success)' }}>
-                    {f.daysUntilExhaustion} days
-                  </td>
-                  <td className="mono">{f.safetyStock.toFixed(1)}</td>
-                  <td className="mono">{f.reorderPoint.toFixed(1)}</td>
-                  <td className="mono" style={{ fontWeight: 600 }}>{f.recommendedReorderQuantity}</td>
-                  <td>
-                    <span className={`badge ${f.currentStock <= f.reorderPoint ? 'badge-pending' : 'badge-available'}`}>
-                      {f.currentStock <= f.reorderPoint ? 'Order Now' : 'Stock OK'}
-                    </span>
-                  </td>
-                  <td>
-                    <button className="btn btn-primary" style={{ padding: '4px 8px', fontSize: '12px' }} onClick={() => adjustQuantity(f.itemId, f.recommendedReorderQuantity)}>
-                      Reorder
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {/* WASTE VIEW */}
-      {view === 'waste' && (
-        <>
-          <div className="stat-grid" style={{ marginBottom: '24px' }}>
-            <div className="stat-card" style={{ background: 'var(--danger)' }}>
-              <div className="stat-value" style={{ fontSize: '32px' }}>{formatCurrency(wasteStats.totalWaste)}</div>
-              <div className="stat-label">Total Waste Cost</div>
-            </div>
-            <div className="stat-card" style={{ background: 'var(--warning)' }}>
-              <div className="stat-value" style={{ fontSize: '32px' }}>{wasteStats.wastePercentage.toFixed(1)}%</div>
-              <div className="stat-label">Waste % of Inventory</div>
-            </div>
-            <div className="stat-card" style={{ background: 'var(--primary)' }}>
-              <div className="stat-value" style={{ fontSize: '32px' }}>{wasteStats.totalCount}</div>
-              <div className="stat-label">Waste Events</div>
-            </div>
-          </div>
-          
-          <div style={{ marginBottom: '16px' }}>
-            <button className="btn btn-primary" onClick={() => openWasteModal()}>+ Record Waste</button>
-          </div>
-
-          <div className="data-card">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Item</th>
-                  <th>Quantity</th>
-                  <th>Cost</th>
-                  <th>Reason</th>
-                  <th>Recorded By</th>
-                  <th>Notes</th>
-                </tr>
-              </thead>
-              <tbody>
-                {wasteLogs.map(w => (
-                  <tr key={w.id}>
-                    <td className="mono">{new Date(w.recordedAt).toLocaleDateString()}</td>
-                    <td>{w.itemName}</td>
-                    <td className="mono">{w.quantity}</td>
-                    <td className="mono" style={{ color: 'var(--danger)' }}>{formatCurrency(w.cost)}</td>
-                    <td>
-                      <span className="badge badge-cancelled">{w.reason}</span>
-                    </td>
-                    <td>{w.recordedBy}</td>
-                    <td>{w.notes || '-'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {wasteLogs.length === 0 && (
-              <div className="empty-state">
-                <div className="empty-state-text">No waste records found</div>
-              </div>
-            )}
-          </div>
-        </>
-      )}
-
-      {/* SUPPLIERS VIEW */}
-      {view === 'suppliers' && (
-        <>
-          <div className="filter-bar">
-            <input 
-              className="form-input" 
-              style={{ width: '300px' }}
-              placeholder="Search suppliers..." 
-              value={supplierFilter.search}
-              onChange={e => setSupplierFilter(prev => ({ ...prev, search: e.target.value }))}
-            />
-            <select className="form-select" style={{ width: '120px' }} value={supplierFilter.status} onChange={e => setSupplierFilter(prev => ({ ...prev, status: e.target.value as any }))}>
-              <option value="all">All Status</option>
-              <option value="active">Active</option>
-              <option value="inactive">Inactive</option>
-            </select>
-            <select className="form-select" style={{ width: '120px' }} value={supplierFilter.rating} onChange={e => setSupplierFilter(prev => ({ ...prev, rating: e.target.value as any }))}>
-              <option value="all">All Ratings</option>
-              <option value="5">5 Stars</option>
-              <option value="4">4 Stars</option>
-              <option value="3">3 Stars</option>
-              <option value="2">2 Stars</option>
-              <option value="1">1 Star</option>
-            </select>
-            <select className="form-select" style={{ width: '150px' }} value={supplierFilter.sortBy} onChange={e => setSupplierFilter(prev => ({ ...prev, sortBy: e.target.value as any }))}>
-              <option value="name">Sort by Name</option>
-              <option value="rating">Sort by Rating</option>
-              <option value="totalSpend">Sort by Spend</option>
-              <option value="onTimeRate">Sort by On-Time</option>
-              <option value="leadTime">Sort by Lead Time</option>
-            </select>
-            <button className="btn btn-secondary" onClick={() => setSupplierFilter(prev => ({ ...prev, sortOrder: prev.sortOrder === 'asc' ? 'desc' : 'asc' }))}>
-              {supplierFilter.sortOrder === 'asc' ? '↑' : '↓'}
-            </button>
-            <button className="btn btn-primary" onClick={openAddSupplierModal}>
-              + Add Supplier
-            </button>
-          </div>
-
-          <div className="data-card">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Supplier</th>
-                  <th>Contact</th>
-                  <th>Status</th>
-                  <th>Rating</th>
-                  <th>Orders</th>
-                  <th>On-Time Rate</th>
-                  <th>Lead Time</th>
-                  <th>Total Spend</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredSuppliers.map(supplier => {
-                  const perf = calculateSupplierPerformance(supplier);
-                  return (
-                    <tr key={supplier.id}>
-                      <td>
-                        <div style={{ fontWeight: 600 }}>{supplier.name}</div>
-                        <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{supplier.paymentTerms}</div>
-                      </td>
-                      <td>
-                        <div>{supplier.contactName}</div>
-                        <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{supplier.email}</div>
-                      </td>
-                      <td>
-                        <span className={`badge ${supplier.status === 'active' ? 'badge-available' : 'badge-cancelled'}`}>
-                          {supplier.status}
-                        </span>
-                      </td>
-                      <td>
-                        <div style={{ display: 'flex', gap: '2px' }}>
-                          {[1, 2, 3, 4, 5].map(star => (
-                            <span key={star} style={{ color: star <= supplier.rating ? '#fbbf24' : '#e5e7eb' }}>★</span>
-                          ))}
-                        </div>
-                      </td>
-                      <td className="mono">{perf.totalOrders}</td>
-                      <td className="mono" style={{ color: perf.onTimeRate >= 0.9 ? 'var(--success)' : perf.onTimeRate >= 0.75 ? 'var(--warning)' : 'var(--danger)' }}>
-                        {(perf.onTimeRate * 100).toFixed(1)}%
-                      </td>
-                      <td className="mono">{perf.averageLeadTime.toFixed(1)}d</td>
-                      <td className="mono" style={{ fontWeight: 600 }}>{formatCurrency(perf.totalSpend)}</td>
-                      <td>
-                        <button className="action-btn" onClick={() => openSupplierDetailModal(supplier)}>View</button>
-                        <button className="action-btn edit" style={{ marginLeft: '8px' }} onClick={() => openEditSupplierModal(supplier)}>Edit</button>
-                        <button className="action-btn" style={{ marginLeft: '8px', color: 'var(--danger)' }} onClick={() => deleteSupplier(supplier.id)}>Delete</button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-            {filteredSuppliers.length === 0 && (
-              <div className="empty-state">
-                <div className="empty-state-text">No suppliers found</div>
-              </div>
-            )}
-          </div>
-        </>
-      )}
-
-      {/* TRANSFERS VIEW */}
-      {view === 'transfers' && (
-        <>
-          <div style={{ marginBottom: '16px' }}>
-            <button className="btn btn-primary" onClick={() => openTransferModal()}>+ Create Transfer</button>
-          </div>
-
-          <div className="data-card">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Item</th>
-                  <th>Quantity</th>
-                  <th>From</th>
-                  <th>To</th>
-                  <th>Status</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {transfers.map(t => (
-                  <tr key={t.id}>
-                    <td className="mono">{new Date(t.requestedAt).toLocaleDateString()}</td>
-                    <td>{t.itemName}</td>
-                    <td className="mono">{t.quantity}</td>
-                    <td>{locations.find(l => l.id === t.fromLocation)?.name || t.fromLocation}</td>
-                    <td>{locations.find(l => l.id === t.toLocation)?.name || t.toLocation}</td>
-                    <td>
-                      <span className={`badge ${
-                        t.status === 'completed' ? 'badge-available' :
-                        t.status === 'in_transit' ? 'badge-in_progress' :
-                        t.status === 'requested' ? 'badge-pending' : 'badge-cancelled'
-                      }`}>
-                        {t.status}
-                      </span>
-                    </td>
-                     <td>
-                       {t.status === 'requested' && (
-                         <>
-                           <button className="btn btn-primary" style={{ padding: '4px 8px', fontSize: '12px', marginRight: '4px' }} onClick={() => approveTransfer(t.id)}>
-                             Approve
-                           </button>
-                           <button className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '12px', color: 'var(--danger)' }} onClick={() => cancelTransfer(t.id)}>
-                             Cancel
-                           </button>
-                         </>
-                       )}
-                       {t.status === 'in_transit' && (
-                         <>
-                           <button className="btn btn-primary" style={{ padding: '4px 8px', fontSize: '12px', marginRight: '4px' }} onClick={() => receiveTransfer(t.id)}>
-                             Receive
-                           </button>
-                           <button className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '12px', color: 'var(--danger)' }} onClick={() => cancelTransfer(t.id)}>
-                             Cancel
-                           </button>
-                         </>
-                       )}
-                       {t.status === 'completed' && (
-                         <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Completed</span>
-                       )}
-                       {t.status === 'cancelled' && (
-                         <span style={{ fontSize: '12px', color: 'var(--danger)' }}>Cancelled</span>
-                       )}
-                     </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {transfers.length === 0 && (
-              <div className="empty-state">
-                <div className="empty-state-text">No stock transfers</div>
-              </div>
-            )}
-          </div>
-        </>
-      )}
-
-      {/* AUDIT LOG VIEW */}
-      {view === 'audit' && (
-        <div className="data-card">
-          <div className="data-card-header">
-            <h3 className="data-card-title">Full Audit Logs</h3>
-          </div>
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Timestamp</th>
-                <th>Item</th>
-                <th>Action</th>
-                <th>User</th>
-                <th>IP Address</th>
-              </tr>
-            </thead>
-            <tbody>
-              {auditLogs.map(log => (
-                <tr key={log.id}>
-                  <td className="mono">{new Date(log.timestamp).toLocaleString()}</td>
-                  <td>{log.itemName}</td>
-                  <td>
-                    <span className="badge badge-in_progress">{log.action}</span>
-                  </td>
-                  <td>{log.userName}</td>
-                  <td className="mono">{log.ipAddress || '-'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {auditLogs.length === 0 && (
-            <div className="empty-state">
-              <div className="empty-state-text">No audit logs recorded</div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Enhanced Add/Edit Modal */}
-      <div className={`modal-overlay ${showModal ? 'active' : ''}`} onClick={() => setShowModal(false)}>
-        <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '700px', width: '95vw' }}>
-          <div className="modal-header">
-            <h2 className="modal-title">{editingItem ? 'Edit Item' : 'Add New Item'}</h2>
-            <button className="modal-close" onClick={() => setShowModal(false)}>×</button>
-          </div>
-          <div className="modal-body" style={{ padding: '20px' }}>
-            
-            {/* Quick Presets Bar */}
-            {!editingItem && (
-              <div style={{ marginBottom: '20px' }}>
-                <label className="form-label" style={{ marginBottom: '8px', display: 'block' }}>Quick Presets</label>
-                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                  {inventoryPresets.map((preset, idx) => (
-                    <button 
-                      key={idx}
-                      className="btn btn-secondary"
-                      style={{ padding: '6px 12px', fontSize: '12px' }}
-                      onClick={() => applyPreset(preset)}
-                      type="button"
-                    >
-                      {preset.name}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Duplicate From Existing */}
-            {!editingItem && (
-              <div className="form-group">
-                <label className="form-label">Duplicate From Existing Item</label>
-                <select 
-                  className="form-select" 
-                  value={duplicateFromId} 
-                  onChange={e => handleDuplicateSelect(e.target.value)}
-                >
-                  <option value="">-- Select item to duplicate --</option>
-                  {items.map(item => (
-                    <option key={item.id} value={item.id}>{item.name}</option>
-                  ))}
-                </select>
-              </div>
-            )}
-
-            {/* Tabs Navigation */}
-            <div style={{ display: 'flex', gap: '4px', marginBottom: '20px', borderBottom: '1px solid var(--border)' }}>
-              {(['basic', 'inventory', 'tracking', 'settings'] as const).map(tab => (
-                <button
-                  key={tab}
-                  style={{
-                    padding: '8px 16px',
-                    border: 'none',
-                    background: activeTab === tab ? 'var(--primary)' : 'transparent',
-                    color: activeTab === tab ? 'white' : 'var(--text)',
-                    borderRadius: '4px 4px 0 0',
-                    cursor: 'pointer',
-                    fontWeight: activeTab === tab ? 600 : 400,
-                  }}
-                  onClick={() => setActiveTab(tab)}
-                  type="button"
-                >
-                  {tab.charAt(0).toUpperCase() + tab.slice(1)}
-                </button>
-              ))}
-            </div>
-
-            {/* Basic Tab */}
-            {activeTab === 'basic' && (
-              <>
-                <div className="form-group">
-                  <label className="form-label">Item Name *</label>
-                  <input 
-                    className={`form-input ${formErrors.name ? 'error' : ''}`}
-                    value={formData.name} 
-                    onChange={e => {
-                      setFormData({ ...formData, name: e.target.value });
-                      validateField('name', e.target.value);
-                    }} 
-                    placeholder="Item name" 
-                  />
-                  {formErrors.name && <div style={{ color: 'var(--danger)', fontSize: '12px', marginTop: '4px' }}>{formErrors.name}</div>}
-                </div>
-
-                <div className="grid-2">
-                  <div className="form-group">
-                    <label className="form-label">Category</label>
-                    <select className="form-select" value={formData.category} onChange={e => setFormData({ ...formData, category: e.target.value })}>
-                      <option>Ingredients</option>
-                      <option>Supplies</option>
-                      <option>Beverages</option>
-                      <option>Equipment</option>
-                    </select>
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Unit Type</label>
-                    <select className="form-select" value={formData.unit} onChange={e => setFormData({ ...formData, unit: e.target.value })}>
-                      <option>pieces</option>
-                      <option>kg</option>
-                      <option>grams</option>
-                      <option>liters</option>
-                      <option>ml</option>
-                      <option>bottles</option>
-                      <option>boxes</option>
-                      <option>cases</option>
-                      <option>packs</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div className="grid-2">
-                  <div className="form-group">
-                    <label className="form-label">Quantity *</label>
-                    <input 
-                      className={`form-input ${formErrors.quantity ? 'error' : ''}`}
-                      type="number" 
-                      step="0.001" 
-                      value={formData.quantity} 
-                      onChange={e => {
-                        setFormData({ ...formData, quantity: e.target.value });
-                        validateField('quantity', e.target.value);
-                      }} 
-                      placeholder="0" 
-                    />
-                    {formErrors.quantity && <div style={{ color: 'var(--danger)', fontSize: '12px', marginTop: '4px' }}>{formErrors.quantity}</div>}
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Cost per Unit</label>
-                    <input 
-                      className={`form-input ${formErrors.costPerUnit ? 'error' : ''}`}
-                      type="number" 
-                      step="0.01" 
-                      value={formData.costPerUnit} 
-                      onChange={e => {
-                        setFormData({ ...formData, costPerUnit: e.target.value });
-                        validateField('costPerUnit', e.target.value);
-                      }} 
-                      placeholder="0.00" 
-                    />
-                    {formErrors.costPerUnit && <div style={{ color: 'var(--danger)', fontSize: '12px', marginTop: '4px' }}>{formErrors.costPerUnit}</div>}
-                  </div>
-                </div>
-
-                <div className="grid-2">
-                  <div className="form-group">
-                    <label className="form-label">Sale Price (Optional)</label>
-                    <input className="form-input" type="number" step="0.01" value={formData.salePrice || ''} onChange={e => setFormData({ ...formData, salePrice: e.target.value })} placeholder="0.00" />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Supplier</label>
-                    <select className="form-select" value={formData.supplier} onChange={e => setFormData({ ...formData, supplier: e.target.value })}>
-                      <option value="">-- Select Supplier --</option>
-                      {suppliers.map(s => <option key={s} value={s}>{s}</option>)}
-                    </select>
-                  </div>
-                </div>
-              </>
-            )}
-
-            {/* Inventory Tab */}
-            {activeTab === 'inventory' && (
-              <>
-                <div className="grid-3">
-                  <div className="form-group">
-                    <label className="form-label">Reorder Level</label>
-                    <input 
-                      className="form-input" 
-                      type="number" 
-                      step="0.01" 
-                      value={formData.reorderLevel} 
-                      onChange={e => setFormData({ ...formData, reorderLevel: e.target.value })} 
-                      placeholder="0" 
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Minimum Stock</label>
-                    <input 
-                      className={`form-input ${formErrors.minStock ? 'error' : ''}`}
-                      type="number" 
-                      step="0.01" 
-                      value={formData.minStock} 
-                      onChange={e => {
-                        setFormData({ ...formData, minStock: e.target.value });
-                        validateField('minStock', e.target.value);
-                      }} 
-                      placeholder="0" 
-                    />
-                    {formErrors.minStock && <div style={{ color: 'var(--danger)', fontSize: '12px', marginTop: '4px' }}>{formErrors.minStock}</div>}
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Maximum Stock</label>
-                    <input 
-                      className={`form-input ${formErrors.maxStock ? 'error' : ''}`}
-                      type="number" 
-                      step="0.01" 
-                      value={formData.maxStock} 
-                      onChange={e => {
-                        setFormData({ ...formData, maxStock: e.target.value });
-                        validateField('maxStock', e.target.value);
-                      }} 
-                      placeholder="0" 
-                    />
-                    {formErrors.maxStock && <div style={{ color: 'var(--danger)', fontSize: '12px', marginTop: '4px' }}>{formErrors.maxStock}</div>}
-                  </div>
-                </div>
-
-                <div className="form-group">
-                  <label className="form-label">Storage Location</label>
-                  <select className="form-select" value={formData.location} onChange={e => setFormData({ ...formData, location: e.target.value })}>
-                    <option value="">-- Select Location --</option>
-                    {locations.map(l => <option key={l.id} value={l.name}>{l.name} ({l.type})</option>)}
-                  </select>
-                </div>
-              </>
-            )}
-
-            {/* Tracking Tab */}
-            {activeTab === 'tracking' && (
-              <>
-                <div className="grid-2">
-                  <div className="form-group">
-                    <label className="form-label">Barcode</label>
-                    <div style={{ display: 'flex', gap: '8px' }}>
-                      <input className="form-input" value={formData.barcode} onChange={e => setFormData({ ...formData, barcode: e.target.value })} placeholder="Barcode / SKU" style={{ flex: 1 }} />
-                      <button 
-                        className="btn btn-secondary" 
-                        style={{ padding: '0 12px' }}
-                        onClick={() => setFormData({ ...formData, barcode: generateBarcode(String(items.length + 1)) })}
-                        type="button"
-                      >
-                        Auto
-                      </button>
-                    </div>
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Batch Number</label>
-                    <div style={{ display: 'flex', gap: '8px' }}>
-                      <input className="form-input" value={formData.batchNumber} onChange={e => setFormData({ ...formData, batchNumber: e.target.value })} placeholder="Batch number" style={{ flex: 1 }} />
-                      <button 
-                        className="btn btn-secondary" 
-                        style={{ padding: '0 12px' }}
-                        onClick={() => setFormData({ 
-                          ...formData, 
-                          batchNumber: `BATCH-${new Date().toISOString().slice(0,10).replace(/-/g, '')}-${String(Math.floor(Math.random() * 1000)).padStart(3, '0')}`
-                        })}
-                        type="button"
-                      >
-                        Auto
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid-2">
-                  <div className="form-group">
-                    <label className="form-label">Received Date</label>
-                    <input className="form-input" type="date" value={formData.receivedDate} onChange={e => setFormData({ ...formData, receivedDate: e.target.value })} />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Expiry Date</label>
-                    <input 
-                      className={`form-input ${formErrors.expiryDate ? 'error' : ''}`}
-                      type="date" 
-                      value={formData.expiryDate} 
-                      onChange={e => {
-                        setFormData({ ...formData, expiryDate: e.target.value });
-                        validateField('expiryDate', e.target.value);
-                      }} 
-                    />
-                    {formErrors.expiryDate && <div style={{ color: 'var(--danger)', fontSize: '12px', marginTop: '4px' }}>{formErrors.expiryDate}</div>}
-                  </div>
-                </div>
-              </>
-            )}
-
-            {/* Settings Tab */}
-            {activeTab === 'settings' && (
-              <div style={{ padding: '20px' }}>
-                <p style={{ color: 'var(--text-muted)', marginBottom: '16px' }}>
-                  Additional item configuration and advanced settings will appear here.
-                </p>
-                <button 
-                  className="btn btn-secondary" 
-                  onClick={autoGenerateFields}
-                  style={{ width: '100%' }}
-                  type="button"
-                >
-                  Auto-Generate Missing Fields
-                </button>
-              </div>
-            )}
-
-          </div>
-          <div className="modal-footer">
-            <button className="btn btn-secondary" onClick={() => setShowModal(false)}>Cancel</button>
-            <button className="btn btn-primary" onClick={saveItem} disabled={!formData.name || !formData.quantity}>
-              {editingItem ? 'Save Changes' : 'Add Item'}
-            </button>
-          </div>
+          ))}
         </div>
       </div>
 
-      {/* History Modal */}
-      <div className={`modal-overlay ${showHistoryModal ? 'active' : ''}`} onClick={() => setShowHistoryModal(false)}>
-        <div className="modal" onClick={e => e.stopPropagation()} style={{ backgroundColor: '#121212', border: 'none', width: '90%', maxWidth: '900px' }}>
-          <div className="modal-header" style={{ borderBottom: '1px solid #333', paddingBottom: '24px' }}>
-            <h2 className="modal-title" style={{ fontSize: '42px', fontWeight: '700' }}>Usage History - {selectedItem?.name}</h2>
-            <button className="modal-close" onClick={() => setShowHistoryModal(false)} style={{ width: '50px', height: '50px', fontSize: '28px' }}>×</button>
-          </div>
-          <div className="modal-body" style={{ padding: '32px' }}>
-            <table className="data-table">
-              <thead>
-                <tr style={{ backgroundColor: '#222' }}>
-                  <th style={{ fontSize: '20px', color: '#888', fontWeight: '500', padding: '16px' }}>Date</th>
-                  <th style={{ fontSize: '20px', color: '#888', fontWeight: '500', padding: '16px' }}>Action</th>
-                  <th style={{ fontSize: '20px', color: '#888', fontWeight: '500', padding: '16px' }}>Quantity</th>
-                  <th style={{ fontSize: '20px', color: '#888', fontWeight: '500', padding: '16px' }}>Reference</th>
-                  <th style={{ fontSize: '20px', color: '#888', fontWeight: '500', padding: '16px' }}>Notes</th>
-                </tr>
-              </thead>
-              <tbody>
-                {stockMovements
-                  .filter(m => selectedItem && m.itemId === selectedItem.id)
-                  .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-                  .map((movement, index) => (
-                  <tr key={index} style={{ borderBottom: '1px solid #333' }}>
-                    <td style={{ fontSize: '28px', padding: '24px 16px' }}>{movement.date}</td>
-                    <td style={{ padding: '24px 16px' }}>
-                      <span style={{ 
-                        padding: '8px 24px', 
-                        borderRadius: '24px', 
-                        display: 'inline-block',
-                        fontWeight: '500',
-                        fontSize: '24px',
-                        backgroundColor: movement.type === 'received' ? '#166534' : '#1e3a5f',
-                        color: movement.type === 'received' ? '#4ade80' : '#93c5fd'
-                      }}>
-                        {movement.type === 'received' ? 'Restocked' : 
-                         movement.type === 'used' ? 'Used' : 
-                         movement.type === 'order_consumption' ? 'Order Use' :
-                         movement.type}
-                      </span>
-                    </td>
-                    <td style={{ fontSize: '32px', fontWeight: '500', padding: '24px 16px' }} className="mono">{Math.abs(movement.quantity)}</td>
-                    <td style={{ fontSize: '24px', padding: '24px 16px' }}>{movement.reference || '-'}</td>
-                    <td style={{ fontSize: '24px', padding: '24px 16px' }}>{movement.notes || '-'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <div className="modal-footer" style={{ borderTop: 'none', justifyContent: 'flex-end', padding: '24px' }}>
-            <button className="btn btn-secondary" style={{ padding: '16px 40px', fontSize: '24px' }} onClick={() => setShowHistoryModal(false)}>Close</button>
-          </div>
-        </div>
-      </div>
-
-      {/* Restock Modal */}
-      {showRestockModal && (
-        <div className="modal-overlay" onClick={() => setShowRestockModal(false)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3 className="modal-title">Create Restock Order</h3>
-              <button className="modal-close" onClick={() => setShowRestockModal(false)}>×</button>
-            </div>
-            <div className="modal-content">
-              <div className="form-group">
-                <label>Supplier</label>
-                <select className="form-select" style={{ width: '200px' }} value={restockSupplier} onChange={e => setRestockSupplier(e.target.value)}>
-                  {suppliers.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
-                </select>
-              </div>
-          <div className="modal-body">
-            <div className="form-group">
-              <label className="form-label">Supplier</label>
-              <select className="form-select" value={restockSupplier} onChange={e => setRestockSupplier(e.target.value)}>
-                {suppliers.map(s => (
-                  <option key={s} value={s}>{s}</option>
-                ))}
-              </select>
-            </div>
-            <div className="form-group">
-              <label className="form-label">Notes</label>
-              <input className="form-input" value={restockNotes} onChange={e => setRestockNotes(e.target.value)} placeholder="Order notes" />
-            </div>
-            
-            <div style={{ marginTop: '16px', marginBottom: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <label className="form-label" style={{ margin: 0 }}>Items to Order</label>
-              <button className="btn btn-secondary" style={{ padding: '4px 12px' }} onClick={addRestockItem}>+ Add Item</button>
-            </div>
-            
-            <div style={{ maxHeight: '300px', overflowY: 'auto', border: '1px solid var(--border)', borderRadius: '8px' }}>
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Item</th>
-                    <th>Quantity</th>
-                    <th>Unit Cost</th>
-                    <th>Total</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {restockItems.map((item, index) => (
-                    <tr key={index}>
-                      <td>
-                        <select className="form-select" value={item.itemId} onChange={e => {
-                          const selectedItem = items.find(i => i.id === e.target.value);
-                          if (selectedItem) {
-                            updateRestockItem(index, 'itemId', selectedItem.id);
-                            updateRestockItem(index, 'name', selectedItem.name);
-                            updateRestockItem(index, 'costPerUnit', selectedItem.costPerUnit);
-                          }
-                        }}>
-                          <option value="">Select item...</option>
-                          {items.map(i => (
-                            <option key={i.id} value={i.id}>{i.name}</option>
-                          ))}
-                        </select>
-                      </td>
-                      <td>
-                        <input 
-                          type="number" 
-                          className="form-input" 
-                          value={item.quantity} 
-                          onChange={e => updateRestockItem(index, 'quantity', parseInt(e.target.value) || 0)}
-                          min="1"
-                        />
-                      </td>
-                      <td className="mono">{formatCurrency(item.costPerUnit)}</td>
-                      <td className="mono">{formatCurrency(item.quantity * item.costPerUnit)}</td>
-                      <td>
-                        <button className="action-btn" style={{ color: 'var(--danger)' }} onClick={() => removeRestockItem(index)}>×</button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {restockItems.length === 0 && (
-                <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>
-                  No items added. Click \"Add Item\" to add items.
-                </div>
-              )}
-            </div>
-
-            <div style={{ marginTop: '16px', padding: '16px', background: 'var(--bg-elevated)', borderRadius: '8px', display: 'flex', justifyContent: 'space-between' }}>
-              <span style={{ fontWeight: '600' }}>Order Total:</span>
-              <span className="mono" style={{ fontSize: '18px', fontWeight: '700', color: 'var(--primary)' }}>{formatCurrency(restockTotal)}</span>
-            </div>
-          </div>
-          <div className="modal-footer">
-            <button className="btn btn-secondary" onClick={() => setShowRestockModal(false)}>Cancel</button>
-            <button className="btn btn-primary" onClick={submitRestockOrder}>Create Order</button>
-          </div>
-        </div>
-      </div>
-
-      {/* Stock Movement Modal */}
-      <div className={`modal-overlay ${showMovementModal ? 'active' : ''}`} onClick={() => setShowMovementModal(false)}>
-        <div className="modal" onClick={e => e.stopPropagation()}>
-          <div className="modal-header">
-            <h2 className="modal-title">Record Stock Movement</h2>
-            <button className="modal-close" onClick={() => setShowMovementModal(false)}>×</button>
-          </div>
-          <div className="modal-body">
-            <div className="form-group">
-              <label className="form-label">Item</label>
-              <select className="form-select" value={movementForm.itemId} onChange={e => setMovementForm({ ...movementForm, itemId: e.target.value })}>
-                <option value="">Select item...</option>
-                {items.map(i => (
-                  <option key={i.id} value={i.id}>{i.name} (Current: {i.quantity} {i.unit})</option>
-                ))}
-              </select>
-            </div>
-            <div className="grid-2">
-              <div className="form-group">
-                <label className="form-label">Movement Type</label>
-                <select className="form-select" value={movementForm.type} onChange={e => setMovementForm({ ...movementForm, type: e.target.value as StockMovement['type'] })}>
-                  <option value="received">Received</option>
-                  <option value="used">Used</option>
-                  <option value="adjustment">Adjustment</option>
-                  <option value="waste">Waste</option>
-                  <option value="transfer">Transfer</option>
-                </select>
-              </div>
-              <div className="form-group">
-                <label className="form-label">Quantity</label>
-                <input 
-                  className="form-input" 
-                  type="number"
-                  step="0.01" 
-                  value={movementForm.quantity} 
-                  onChange={e => setMovementForm({ ...movementForm, quantity: e.target.value })} 
-                  placeholder={movementForm.type === 'received' ? 'Amount received' : 'Amount used/wasted'}
-                />
-              </div>
-            </div>
-            <div className="form-group">
-              <label className="form-label">Reference (Optional)</label>
-              <input className="form-input" value={movementForm.reference} onChange={e => setMovementForm({ ...movementForm, reference: e.target.value })} placeholder="e.g., PO-001, ORD-001" />
-            </div>
-            <div className="form-group">
-              <label className="form-label">Notes</label>
-              <textarea className="form-input" rows={3} value={movementForm.notes} onChange={e => setMovementForm({ ...movementForm, notes: e.target.value })} placeholder="Additional details..." />
-            </div>
-          </div>
-          <div className="modal-footer">
-            <button className="btn btn-secondary" onClick={() => setShowMovementModal(false)}>Cancel</button>
-            <button className="btn btn-primary" onClick={saveMovement}>Record Movement</button>
-          </div>
-        </div>
-      </div>
-
-      {/* Inventory Count Modal */}
-      <div className={`modal-overlay ${showCountModal ? 'active' : ''}`} onClick={() => setShowCountModal(false)}>
-        <div className="modal" onClick={e => e.stopPropagation()}>
-          <div className="modal-header">
-            <h2 className="modal-title">Record Inventory Count</h2>
-            <button className="modal-close" onClick={() => setShowCountModal(false)}>×</button>
-          </div>
-          <div className="modal-body">
-            <div className="form-group">
-              <label className="form-label">Item</label>
-              <select className="form-select" value={countForm.itemId} onChange={e => setCountForm({ ...countForm, itemId: e.target.value })}>
-                <option value="">Select item...</option>
-                {items.map(i => (
-                  <option key={i.id} value={i.id}>{i.name} (System: {i.quantity} {i.unit})</option>
-                ))}
-              </select>
-            </div>
-            <div className="grid-2">
-              <div className="form-group">
-                <label className="form-label">Counted Quantity</label>
-                <input 
-                  className="form-input" 
-                  type="number"
-                  step="0.01" 
-                  value={countForm.countedQuantity} 
-                  onChange={e => setCountForm({ ...countForm, countedQuantity: e.target.value })} 
-                  placeholder="Physical count"
-                />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Counted By</label>
-                <input 
-                  className="form-input" 
-                  value={countForm.countedBy} 
-                  onChange={e => setCountForm({ ...countForm, countedBy: e.target.value })} 
-                  placeholder="Name"
-                />
-              </div>
-            </div>
-            <div className="form-group">
-              <label className="form-label">Notes</label>
-              <textarea className="form-input" rows={3} value={countForm.notes} onChange={e => setCountForm({ ...countForm, notes: e.target.value })} placeholder="Count details..." />
-            </div>
-            {countForm.itemId && countForm.countedQuantity && (
-              <div style={{ 
-                padding: '12px', 
-                borderRadius: '8px', 
-                background: 'var(--bg-elevated)',
-                marginTop: '16px'
-              }}>
-                {(() => {
-                  const item = items.find(i => i.id === countForm.itemId);
-                  if (!item) return null;
-                  const counted = parseFloat(countForm.countedQuantity);
-                  const variance = counted - item.quantity;
-                  const variancePercent = item.quantity > 0 ? Math.abs((variance / item.quantity) * 100) : 0;
-                  return (
-                    <div>
-                      <div>System Quantity: <strong>{item.quantity} {item.unit}</strong></div>
-                      <div>Counted Quantity: <strong>{counted} {item.unit}</strong></div>
-                      <div>Variance: <strong style={{ color: variance >= 0 ? 'var(--success)' : 'var(--danger)' }}>
-                        {variance >= 0 ? '+' : ''}{variance.toFixed(2)} ({variancePercent.toFixed(1)}%)
-                      </strong></div>
-                    </div>
-                  );
-                })()}
-              </div>
-            )}
-          </div>
-          <div className="modal-footer">
-            <button className="btn btn-secondary" onClick={() => setShowCountModal(false)}>Cancel</button>
-            <button className="btn btn-primary" onClick={submitInventoryCount}>Submit Count</button>
-          </div>
-        </div>
-       </div>
-
-       {/* Transfer Modal */}
-      <div className={`modal-overlay ${showTransferModal ? 'active' : ''}`} onClick={() => setShowTransferModal(false)}>
-        <div className="modal" onClick={e => e.stopPropagation()}>
-          <div className="modal-header">
-            <h2 className="modal-title">Create Stock Transfer</h2>
-            <button className="modal-close" onClick={() => setShowTransferModal(false)}>×</button>
-          </div>
-          <div className="modal-body">
-            <div className="form-group">
-              <label className="form-label">Inventory Item</label>
-              <select className="form-select" value={transferForm.itemId} onChange={e => setTransferForm({ ...transferForm, itemId: e.target.value })}>
-                <option value="">Select item...</option>
-                {items.map(i => (
-                  <option key={i.id} value={i.id}>{i.name} (Current: {i.quantity} {i.unit})</option>
-                ))}
-              </select>
-            </div>
-            <div className="grid-2">
-              <div className="form-group">
-                <label className="form-label">From Location</label>
-                <select className="form-select" value={transferForm.fromLocation} onChange={e => setTransferForm({ ...transferForm, fromLocation: e.target.value })}>
-                  {locations.map(l => (
-                    <option key={l.id} value={l.id}>{l.name} ({l.type})</option>
-                  ))}
-                </select>
-              </div>
-              <div className="form-group">
-                <label className="form-label">To Location</label>
-                <select className="form-select" value={transferForm.toLocation} onChange={e => setTransferForm({ ...transferForm, toLocation: e.target.value })}>
-                  {locations.map(l => (
-                    <option key={l.id} value={l.id}>{l.name} ({l.type})</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-            <div className="grid-2">
-              <div className="form-group">
-                <label className="form-label">Quantity</label>
-                <input 
-                  className="form-input" 
-                  type="number"
-                  step="0.01"
-                  min="0" 
-                  value={transferForm.quantity} 
-                  onChange={e => setTransferForm({ ...transferForm, quantity: e.target.value })} 
-                  placeholder="Quantity to transfer"
-                />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Requested By</label>
-                <input 
-                  className="form-input" 
-                  value={transferForm.requestedBy} 
-                  onChange={e => setTransferForm({ ...transferForm, requestedBy: e.target.value })} 
-                  placeholder="Name"
-                />
-              </div>
-            </div>
-            <div className="form-group">
-              <label className="form-label">Notes</label>
-              <textarea 
-                className="form-input" 
-                rows={3} 
-                value={transferForm.notes} 
-                onChange={e => setTransferForm({ ...transferForm, notes: e.target.value })} 
-                placeholder="Transfer reason or additional details..." 
-              />
-            </div>
-          </div>
-          <div className="modal-footer">
-            <button className="btn btn-secondary" onClick={() => setShowTransferModal(false)}>Cancel</button>
-            <button className="btn btn-primary" onClick={createTransfer}>Request Transfer</button>
-          </div>
-        </div>
-      </div>
-
-      {/* Waste Modal */}
-      <div className={`modal-overlay ${showWasteModal ? 'active' : ''}`} onClick={() => setShowWasteModal(false)}>
-        <div className="modal" onClick={e => e.stopPropagation()}>
-          <div className="modal-header">
-            <h2 className="modal-title">Record Waste</h2>
-            <button className="modal-close" onClick={() => setShowWasteModal(false)}>×</button>
-          </div>
-          <div className="modal-body">
-            <div className="form-group">
-              <label className="form-label">Inventory Item</label>
-              <select className="form-select" value={wasteForm.itemId} onChange={e => setWasteForm({ ...wasteForm, itemId: e.target.value })}>
-                <option value="">Select item...</option>
-                {items.map(i => (
-                  <option key={i.id} value={i.id}>{i.name} (Current: {i.quantity} {i.unit})</option>
-                ))}
-              </select>
-            </div>
-            <div className="grid-2">
-              <div className="form-group">
-                <label className="form-label">Quantity</label>
-                <input 
-                  className="form-input" 
-                  type="number"
-                  step="0.01"
-                  min="0" 
-                  value={wasteForm.quantity} 
-                  onChange={e => setWasteForm({ ...wasteForm, quantity: e.target.value })} 
-                  placeholder="Quantity wasted"
-                />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Waste Reason</label>
-                <select className="form-select" value={wasteForm.reason} onChange={e => setWasteForm({ ...wasteForm, reason: e.target.value as WasteLog['reason'] })}>
-                  <option value="spoilage">Spoiled</option>
-                  <option value="overproduction">Overprep</option>
-                  <option value="expired">Expiry</option>
-                  <option value="damage">Damage</option>
-                  <option value="other">Other</option>
-                </select>
-              </div>
-            </div>
-            <div className="form-group">
-              <label className="form-label">Recorded By</label>
-              <input 
-                className="form-input" 
-                value={wasteForm.recordedBy} 
-                onChange={e => setWasteForm({ ...wasteForm, recordedBy: e.target.value })} 
-                placeholder="Your name"
-              />
-            </div>
-            <div className="form-group">
-              <label className="form-label">Notes</label>
-              <textarea 
-                className="form-input" 
-                rows={3} 
-                value={wasteForm.notes} 
-                onChange={e => setWasteForm({ ...wasteForm, notes: e.target.value })} 
-                placeholder="Additional details about the waste..." 
-              />
-            </div>
-            {wasteForm.itemId && wasteForm.quantity && (
-              <div style={{ 
-                padding: '12px', 
-                borderRadius: '8px', 
-                background: 'var(--bg-elevated)',
-                marginTop: '16px'
-              }}>
-                {(() => {
-                  const item = items.find(i => i.id === wasteForm.itemId);
-                  if (!item) return null;
-                  const qty = parseFloat(wasteForm.quantity);
-                  const cost = calculateFifoCost(item.id, qty);
-                  return (
-                    <div>
-                      <div>Item: <strong>{item.name}</strong></div>
-                      <div>Quantity to waste: <strong>{qty} {item.unit}</strong></div>
-                      <div>Estimated cost: <strong style={{ color: 'var(--danger)' }}>{formatCurrency(cost)}</strong></div>
-                      <div>New quantity: <strong>{Math.max(0, item.quantity - qty)} {item.unit}</strong></div>
-                    </div>
-                  );
-                })()}
-              </div>
-            )}
-          </div>
-          <div className="modal-footer">
-            <button className="btn btn-secondary" onClick={() => setShowWasteModal(false)}>Cancel</button>
-            <button className="btn btn-primary" onClick={recordWaste}>Record Waste</button>
-          </div>
-        </div>
-      </div>
-
-      {/* Supplier Form Modal */}
-      {showSupplierModal && (
-        <div className="modal-overlay" onClick={() => setShowSupplierModal(false)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3 className="modal-title">{editingSupplier ? 'Edit Supplier' : 'Add Supplier'}</h3>
-              <button className="modal-close" onClick={() => setShowSupplierModal(false)}>×</button>
-            </div>
-            <div className="modal-content">
-              <div className="form-group">
-                <label className="form-label">Supplier Name</label>
-                <input 
-                  className="form-input" 
-                  value={supplierForm.name} 
-                  onChange={e => setSupplierForm(prev => ({ ...prev, name: e.target.value }))} 
-                  placeholder="Company name"
-                />
-              </div>
-              <div className="grid-2">
-                <div className="form-group">
-                  <label className="form-label">Status</label>
-                  <select className="form-select" value={supplierForm.status} onChange={e => setSupplierForm(prev => ({ ...prev, status: e.target.value as any }))}>
-                    <option value="active">Active</option>
-                    <option value="inactive">Inactive</option>
-                  </select>
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Rating</label>
-                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center', padding: '8px 0' }}>
-                    {[1, 2, 3, 4, 5].map(star => (
-                      <button 
-                        key={star} 
-                        type="button"
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '24px', color: star <= supplierForm.rating ? '#fbbf24' : '#e5e7eb' }}
-                        onClick={() => setSupplierForm(prev => ({ ...prev, rating: star }))}
-                      >★</button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-              <div className="grid-2">
-                <div className="form-group">
-                  <label className="form-label">Contact Name</label>
-                  <input 
-                    className="form-input" 
-                    value={supplierForm.contactName} 
-                    onChange={e => setSupplierForm(prev => ({ ...prev, contactName: e.target.value }))} 
-                    placeholder="Primary contact"
-                  />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Phone</label>
-                  <input 
-                    className="form-input" 
-                    value={supplierForm.phone} 
-                    onChange={e => setSupplierForm(prev => ({ ...prev, phone: e.target.value }))} 
-                    placeholder="Contact number"
-                  />
-                </div>
-              </div>
-              <div className="form-group">
-                <label className="form-label">Email</label>
-                <input 
-                  className="form-input" 
-                  type="email"
-                  value={supplierForm.email} 
-                  onChange={e => setSupplierForm(prev => ({ ...prev, email: e.target.value }))} 
-                  placeholder="email@supplier.com"
-                />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Address</label>
-                <input 
-                  className="form-input" 
-                  value={supplierForm.address} 
-                  onChange={e => setSupplierForm(prev => ({ ...prev, address: e.target.value }))} 
-                  placeholder="Street address"
-                />
-              </div>
-              <div className="grid-2">
-                <div className="form-group">
-                  <label className="form-label">Payment Terms</label>
-                  <select className="form-select" value={supplierForm.paymentTerms} onChange={e => setSupplierForm(prev => ({ ...prev, paymentTerms: e.target.value }))}>
-                    <option value="Net 7">Net 7</option>
-                    <option value="Net 15">Net 15</option>
-                    <option value="Net 30">Net 30</option>
-                    <option value="Net 45">Net 45</option>
-                    <option value="Net 60">Net 60</option>
-                    <option value="COD">Cash on Delivery</option>
-                  </select>
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Tax ID</label>
-                  <input 
-                    className="form-input" 
-                    value={supplierForm.taxId} 
-                    onChange={e => setSupplierForm(prev => ({ ...prev, taxId: e.target.value }))} 
-                    placeholder="Tax identification number"
-                  />
-                </div>
-              </div>
-              <div className="form-group">
-                <label className="form-label">Notes</label>
-                <textarea 
-                  className="form-input" 
-                  rows={3}
-                  value={supplierForm.notes} 
-                  onChange={e => setSupplierForm(prev => ({ ...prev, notes: e.target.value }))} 
-                  placeholder="Additional notes about this supplier..."
-                />
-              </div>
-            </div>
-            <div className="modal-footer">
-              <button className="btn btn-secondary" onClick={() => setShowSupplierModal(false)}>Cancel</button>
-              <button className="btn btn-primary" onClick={saveSupplier}>{editingSupplier ? 'Update Supplier' : 'Add Supplier'}</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Supplier Detail Modal */}
-      {showSupplierDetailModal && selectedSupplier && (
-        <div className="modal-overlay" onClick={() => setShowSupplierDetailModal(false)}>
-          <div className="modal" style={{ maxWidth: '700px' }} onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3 className="modal-title">{selectedSupplier.name}</h3>
-              <button className="modal-close" onClick={() => setShowSupplierDetailModal(false)}>×</button>
-            </div>
-            <div className="modal-content">
-              <div className="stat-grid">
-                <div className="stat-card" style={{ background: 'var(--primary)' }}>
-                  <div className="stat-value">{getSupplierOrders(selectedSupplier.id).length}</div>
-                  <div className="stat-label">Total Orders</div>
-                </div>
-                <div className="stat-card" style={{ background: 'var(--success)' }}>
-                  <div className="stat-value">{formatCurrency(calculateSupplierPerformance(selectedSupplier).totalSpend)}</div>
-                  <div className="stat-label">Total Spend</div>
-                </div>
-                <div className="stat-card" style={{ background: 'var(--warning)' }}>
-                  <div className="stat-value">{(calculateSupplierPerformance(selectedSupplier).onTimeRate * 100).toFixed(0)}%</div>
-                  <div className="stat-label">On-Time Rate</div>
-                </div>
-                <div className="stat-card" style={{ background: 'var(--info)' }}>
-                  <div className="stat-value">{calculateSupplierPerformance(selectedSupplier).averageLeadTime.toFixed(1)}d</div>
-                  <div className="stat-label">Avg Lead Time</div>
-                </div>
-              </div>
-
-              <div style={{ marginTop: '24px' }}>
-                <h4 style={{ marginBottom: '16px' }}>Contact Information</h4>
-                <div className="data-card" style={{ padding: '16px' }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                    <div><strong>Contact:</strong> {selectedSupplier.contactName}</div>
-                    <div><strong>Phone:</strong> {selectedSupplier.phone}</div>
-                    <div><strong>Email:</strong> {selectedSupplier.email}</div>
-                    <div><strong>Terms:</strong> {selectedSupplier.paymentTerms}</div>
-                    <div style={{ gridColumn: 'span 2' }}><strong>Address:</strong> {selectedSupplier.address}</div>
-                    {selectedSupplier.notes && (
-                      <div style={{ gridColumn: 'span 2' }}><strong>Notes:</strong> {selectedSupplier.notes}</div>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              <div style={{ marginTop: '24px' }}>
-                <h4 style={{ marginBottom: '16px' }}>Recent Orders</h4>
-                <div className="data-card">
-                  <table className="data-table">
-                    <thead>
-                      <tr>
-                        <th>Order ID</th>
-                        <th>Date</th>
-                        <th>Total</th>
-                        <th>Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {getSupplierOrders(selectedSupplier.id).slice(0, 5).map(order => (
-                        <tr key={order.id}>
-                          <td className="mono">{order.id}</td>
-                          <td>{order.createdAt}</td>
-                          <td className="mono">{formatCurrency(order.total)}</td>
-                          <td>
-                            <span className={`badge ${
-                              order.status === 'received' ? 'badge-available' :
-                              order.status === 'ordered' ? 'badge-in_progress' :
-                              order.status === 'pending' ? 'badge-pending' :
-                              'badge-cancelled'
-                            }`}>
-                              {order.status}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  {getSupplierOrders(selectedSupplier.id).length === 0 && (
-                    <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>
-                      No orders found for this supplier
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-            <div className="modal-footer">
-              <button className="btn btn-secondary" onClick={() => setShowSupplierDetailModal(false)}>Close</button>
-              <button className="btn btn-primary" onClick={() => { setShowSupplierDetailModal(false); openEditSupplierModal(selectedSupplier); }}>Edit Supplier</button>
-            </div>
-          </div>
-        </div>
-      )}
-    </>
+      {renderActiveTab()}
+    </div>
   );
 }

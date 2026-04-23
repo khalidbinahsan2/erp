@@ -29,7 +29,7 @@ RestaurantHub ERP is a comprehensive restaurant management system built with Nex
 | `src/app/orders/page.tsx` | Orders management | ✅ Ready |
 | `src/app/menu/page.tsx` | Menu management | ✅ Ready |
 | `src/app/tables/page.tsx` | Tables/reservations | ✅ Ready |
-| `src/app/inventory/page.tsx` | Inventory management | ✅ Ready |
+| `src/app/inventory/page.tsx` | Inventory management (full features: stock movements, POs, forecasting, waste, suppliers, counts, transfers, audit logs) | ✅ Ready |
 | `src/app/staff/page.tsx` | Staff management | ✅ Ready |
 | `src/app/reports/page.tsx` | Reports & analytics | ✅ Ready |
 | `src/types/index.ts` | TypeScript interfaces | ✅ Ready |
@@ -97,3 +97,4 @@ export async function GET() {
 |------|---------|
 | Initial | Template created with base setup |
 | 2026-04-20 | Built RestaurantHub ERP with all modules (dashboard, orders, menu, tables, inventory, staff, reports) |
+| 2026-04-23 | Recreated full inventory page with all advanced features: stock movements, purchase orders, forecasting, waste tracking, supplier management, counts, transfers, audit logs. Verified TypeScript clean compilation. |
