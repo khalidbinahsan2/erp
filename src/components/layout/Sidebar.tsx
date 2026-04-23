@@ -13,6 +13,7 @@ const navItems = [
   { href: '/tables', icon: '🪑', label: 'Tables' },
   { href: '/inventory', icon: '📦', label: 'Inventory' },
   { href: '/inventory/purchase-orders', icon: '🛒', label: 'Purchase Orders', sub: true },
+  { href: '/suppliers', icon: '🏭', label: 'Suppliers' },
   { href: '/customers', icon: '👤', label: 'Customers' },
   { href: '/staff', icon: '👥', label: 'Staff' },
   { href: '/reports', icon: '📈', label: 'Reports' },

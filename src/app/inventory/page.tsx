@@ -405,13 +405,6 @@ export default function InventoryPage() {
   const [restockSupplier, setRestockSupplier] = useState('');
   const [restockNotes, setRestockNotes] = useState('');
 
-  // Forecast reorder modal state
-  const [showForecastReorderModal, setShowForecastReorderModal] = useState(false);
-  const [forecastReorderItem, setForecastReorderItem] = useState<ForecastItem | null>(null);
-  const [reorderQuantity, setReorderQuantity] = useState<number>(0);
-  const [reorderSupplier, setReorderSupplier] = useState<string>('');
-  const [reorderNotes, setReorderNotes] = useState<string>('');
-
   // Inventory count state
   const [countLogs, setCountLogs] = useState<InventoryCountLog[]>([
     { id: 'COUNT-0001', itemId: '2', itemName: 'Atlantic Salmon', countedQuantity: 7, systemQuantity: 8, variance: -1, variancePercent: 12.5, status: 'approved', countedBy: 'Marcus Chen', countedAt: '2026-01-12T08:45:00Z', notes: 'Missing 1 fillet - likely miscounted during last delivery' },
@@ -808,38 +801,6 @@ export default function InventoryPage() {
     setRestockNotes('Auto-generated restock order');
     setShowRestockModal(true);
   }, [items, suppliers]);
-
-  // Forecast reorder functions
-  const openForecastReorderModal = useCallback((forecastItem: ForecastItem) => {
-    setForecastReorderItem(forecastItem);
-    setReorderQuantity(forecastItem.recommendedReorderQuantity);
-    // Find default supplier for this item (first active supplier as default)
-    const activeSuppliers = suppliers.filter(s => s.status === 'active');
-    setReorderSupplier(activeSuppliers[0]?.name || '');
-    setReorderNotes(`Forecasted reorder for ${forecastItem.itemName}`);
-    setShowForecastReorderModal(true);
-  }, [suppliers]);
-
-  const submitForecastReorder = useCallback(() => {
-    if (!forecastReorderItem || reorderQuantity <= 0) return;
-    
-    const item = items.find(i => i.id === forecastReorderItem.itemId);
-    if (!item) return;
-
-    createPurchaseOrder(
-      [{
-        itemId: forecastReorderItem.itemId,
-        name: forecastReorderItem.itemName,
-        quantity: reorderQuantity,
-        cost: reorderQuantity * item.costPerUnit
-      }],
-      reorderSupplier,
-      reorderNotes
-    );
-    
-    setShowForecastReorderModal(false);
-    setForecastReorderItem(null);
-  }, [forecastReorderItem, reorderQuantity, reorderSupplier, reorderNotes, items, createPurchaseOrder]);
 
   const addRestockItem = useCallback(() => {
     setRestockItems(prev => [...prev, { itemId: '', name: '', quantity: 1, costPerUnit: 0 }]);
@@ -2170,7 +2131,7 @@ export default function InventoryPage() {
                     </span>
                   </td>
                   <td>
-                    <button className="btn btn-primary" style={{ padding: '4px 8px', fontSize: '12px', backgroundColor: '#f97316', borderColor: '#ea580c' }} onClick={() => openForecastReorderModal(f)}>
+                    <button className="btn btn-primary" style={{ padding: '4px 8px', fontSize: '12px' }} onClick={() => adjustQuantity(f.itemId, f.recommendedReorderQuantity)}>
                       Reorder
                     </button>
                   </td>
@@ -2827,164 +2788,6 @@ export default function InventoryPage() {
               <h3 className="modal-title">Create Restock Order</h3>
               <button className="modal-close" onClick={() => setShowRestockModal(false)}>×</button>
             </div>
-            <div className="modal-content">
-              <div className="form-group">
-                <label>Supplier</label>
-                <select className="form-select" style={{ width: '200px' }} value={restockSupplier} onChange={e => setRestockSupplier(e.target.value)}>
-                  {suppliers.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
-                </select>
-              </div>
-          <div className="modal-body">
-            <div className="form-group">
-              <label className="form-label">Supplier</label>
-              <select className="form-select" value={restockSupplier} onChange={e => setRestockSupplier(e.target.value)}>
-                {suppliers.map(s => (
-                  <option key={s} value={s}>{s}</option>
-                ))}
-              </select>
-            </div>
-            <div className="form-group">
-              <label className="form-label">Notes</label>
-              <input className="form-input" value={restockNotes} onChange={e => setRestockNotes(e.target.value)} placeholder="Order notes" />
-            </div>
-            
-            <div style={{ marginTop: '16px', marginBottom: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <label className="form-label" style={{ margin: 0 }}>Items to Order</label>
-              <button className="btn btn-secondary" style={{ padding: '4px 12px' }} onClick={addRestockItem}>+ Add Item</button>
-            </div>
-            
-            <div style={{ maxHeight: '300px', overflowY: 'auto', border: '1px solid var(--border)', borderRadius: '8px' }}>
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Item</th>
-                    <th>Quantity</th>
-                    <th>Unit Cost</th>
-                    <th>Total</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {restockItems.map((item, index) => (
-                    <tr key={index}>
-                      <td>
-                        <select className="form-select" value={item.itemId} onChange={e => {
-                          const selectedItem = items.find(i => i.id === e.target.value);
-                          if (selectedItem) {
-                            updateRestockItem(index, 'itemId', selectedItem.id);
-                            updateRestockItem(index, 'name', selectedItem.name);
-                            updateRestockItem(index, 'costPerUnit', selectedItem.costPerUnit);
-                          }
-                        }}>
-                          <option value="">Select item...</option>
-                          {items.map(i => (
-                            <option key={i.id} value={i.id}>{i.name}</option>
-                          ))}
-                        </select>
-                      </td>
-                      <td>
-                        <input 
-                          type="number" 
-                          className="form-input" 
-                          value={item.quantity} 
-                          onChange={e => updateRestockItem(index, 'quantity', parseInt(e.target.value) || 0)}
-                          min="1"
-                        />
-                      </td>
-                      <td className="mono">{formatCurrency(item.costPerUnit)}</td>
-                      <td className="mono">{formatCurrency(item.quantity * item.costPerUnit)}</td>
-                      <td>
-                        <button className="action-btn" style={{ color: 'var(--danger)' }} onClick={() => removeRestockItem(index)}>×</button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {restockItems.length === 0 && (
-                <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>
-                  No items added. Click "Add Item" to add items.
-                </div>
-              )}
-            </div>
-
-            <div style={{ marginTop: '16px', padding: '16px', background: 'var(--bg-elevated)', borderRadius: '8px', display: 'flex', justifyContent: 'space-between' }}>
-              <span style={{ fontWeight: '600' }}>Order Total:</span>
-              <span className="mono" style={{ fontSize: '18px', fontWeight: '700', color: 'var(--primary)' }}>{formatCurrency(restockTotal)}</span>
-            </div>
-          </div>
-          <div className="modal-footer">
-            <button className="btn btn-secondary" onClick={() => setShowRestockModal(false)}>Cancel</button>
-            <button className="btn btn-primary" onClick={submitRestockOrder}>Create Order</button>
-          </div>
-        </div>
-      </div>
-
-      {/* Forecast Reorder Modal */}
-      {showForecastReorderModal && forecastReorderItem && (
-        <div className="modal-overlay" onClick={() => setShowForecastReorderModal(false)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3 className="modal-title">Create Purchase Order</h3>
-              <button className="modal-close" onClick={() => setShowForecastReorderModal(false)}>×</button>
-            </div>
-            <div className="modal-body">
-              <div className="form-group">
-                <label className="form-label">Item</label>
-                <div className="form-input" style={{ backgroundColor: 'var(--bg-muted)', fontWeight: 600 }}>
-                  {forecastReorderItem.itemName}
-                </div>
-              </div>
-              
-              <div className="form-group">
-                <label className="form-label">Current Stock</label>
-                <div className="mono">{forecastReorderItem.currentStock.toFixed(1)} units</div>
-              </div>
-              
-              <div className="form-group">
-                <label className="form-label">Recommended Quantity</label>
-                <div className="mono" style={{ color: 'var(--success)', fontWeight: 600 }}>{forecastReorderItem.recommendedReorderQuantity} units</div>
-              </div>
-              
-              <div className="form-group">
-                <label className="form-label">Order Quantity</label>
-                <input 
-                  type="number" 
-                  className="form-input" 
-                  value={reorderQuantity} 
-                  onChange={e => setReorderQuantity(Math.max(1, parseInt(e.target.value) || 0))}
-                  min="1"
-                  style={{ fontSize: '16px', fontWeight: 600 }}
-                />
-              </div>
-              
-              <div className="form-group">
-                <label className="form-label">Supplier</label>
-                <select className="form-select" value={reorderSupplier} onChange={e => setReorderSupplier(e.target.value)}>
-                  {suppliers.filter(s => s.status === 'active').map(s => (
-                    <option key={s.id} value={s.name}>{s.name}</option>
-                  ))}
-                </select>
-              </div>
-              
-              <div className="form-group">
-                <label className="form-label">Notes</label>
-                <input className="form-input" value={reorderNotes} onChange={e => setReorderNotes(e.target.value)} placeholder="Order notes" />
-              </div>
-              
-              <div style={{ marginTop: '16px', padding: '16px', background: 'var(--bg-elevated)', borderRadius: '8px', display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ fontWeight: '600' }}>Estimated Total:</span>
-                <span className="mono" style={{ fontSize: '18px', fontWeight: '700', color: 'var(--primary)' }}>
-                  {formatCurrency(reorderQuantity * (items.find(i => i.id === forecastReorderItem.itemId)?.costPerUnit || 0))}
-                </span>
-              </div>
-            </div>
-            <div className="modal-footer">
-              <button className="btn btn-secondary" onClick={() => setShowForecastReorderModal(false)}>Cancel</button>
-              <button className="btn btn-primary" onClick={submitForecastReorder} style={{ backgroundColor: '#f97316', borderColor: '#ea580c' }}>Create Purchase Order</button>
-            </div>
-          </div>
-        </div>
-      )}
             <div className="modal-content">
               <div className="form-group">
                 <label>Supplier</label>
