@@ -887,9 +887,11 @@ export default function InventoryPage() {
     
     const qty = parseFloat(wasteForm.quantity);
     const cost = calculateFifoCost(item.id, qty);
+    const previousQty = item.quantity;
+    const newQty = Math.max(0, previousQty - qty);
     
     const newWaste: WasteLog = {
-      id: `WASTE-${Date.now()}`,
+      id: `WASTE-${String(wasteLogs.length + 1).padStart(3, '0')}`,
       itemId: item.id,
       itemName: item.name,
       quantity: qty,
@@ -901,11 +903,35 @@ export default function InventoryPage() {
     };
     
     setWasteLogs(prev => [newWaste, ...prev]);
+    
+    // Create negative stock movement for waste
+    setStockMovements(prev => [{
+      id: `SM-${String(prev.length + 1).padStart(3, '0')}`,
+      itemId: item.id,
+      itemName: item.name,
+      type: 'waste',
+      quantity: -qty,
+      previousQty,
+      newQty,
+      date: new Date().toISOString().split('T')[0],
+      notes: wasteForm.notes || `Waste recorded: ${wasteForm.reason}`,
+      reference: newWaste.id
+    }, ...prev]);
+    
     adjustQuantity(item.id, -qty);
-    addAuditLog(item.id, 'waste_recorded', item.quantity, item.quantity - qty);
+    addAuditLog(item.id, 'waste_recorded', item.quantity, newQty);
+    
+    // Reset form
+    setWasteForm({
+      itemId: '',
+      quantity: '',
+      reason: 'spoilage',
+      notes: '',
+      recordedBy: 'System'
+    });
     
     setShowWasteModal(false);
-  }, [items, wasteForm, calculateFifoCost, adjustQuantity, addAuditLog]);
+  }, [items, wasteForm, calculateFifoCost, adjustQuantity, addAuditLog, wasteLogs]);
 
   // --- TRANSFER FUNCTIONS ---
   const openTransferModal = useCallback((item?: InventoryItemWithBatch) => {
@@ -2339,7 +2365,7 @@ export default function InventoryPage() {
         </div>
        </div>
 
-      {/* Transfer Modal */}
+       {/* Transfer Modal */}
       <div className={`modal-overlay ${showTransferModal ? 'active' : ''}`} onClick={() => setShowTransferModal(false)}>
         <div className="modal" onClick={e => e.stopPropagation()}>
           <div className="modal-header">
@@ -2411,6 +2437,97 @@ export default function InventoryPage() {
           <div className="modal-footer">
             <button className="btn btn-secondary" onClick={() => setShowTransferModal(false)}>Cancel</button>
             <button className="btn btn-primary" onClick={createTransfer}>Request Transfer</button>
+          </div>
+        </div>
+      </div>
+
+      {/* Waste Modal */}
+      <div className={`modal-overlay ${showWasteModal ? 'active' : ''}`} onClick={() => setShowWasteModal(false)}>
+        <div className="modal" onClick={e => e.stopPropagation()}>
+          <div className="modal-header">
+            <h2 className="modal-title">Record Waste</h2>
+            <button className="modal-close" onClick={() => setShowWasteModal(false)}>×</button>
+          </div>
+          <div className="modal-body">
+            <div className="form-group">
+              <label className="form-label">Inventory Item</label>
+              <select className="form-select" value={wasteForm.itemId} onChange={e => setWasteForm({ ...wasteForm, itemId: e.target.value })}>
+                <option value="">Select item...</option>
+                {items.map(i => (
+                  <option key={i.id} value={i.id}>{i.name} (Current: {i.quantity} {i.unit})</option>
+                ))}
+              </select>
+            </div>
+            <div className="grid-2">
+              <div className="form-group">
+                <label className="form-label">Quantity</label>
+                <input 
+                  className="form-input" 
+                  type="number"
+                  step="0.01"
+                  min="0" 
+                  value={wasteForm.quantity} 
+                  onChange={e => setWasteForm({ ...wasteForm, quantity: e.target.value })} 
+                  placeholder="Quantity wasted"
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Waste Reason</label>
+                <select className="form-select" value={wasteForm.reason} onChange={e => setWasteForm({ ...wasteForm, reason: e.target.value as WasteLog['reason'] })}>
+                  <option value="spoilage">Spoiled</option>
+                  <option value="overproduction">Overprep</option>
+                  <option value="expired">Expiry</option>
+                  <option value="damage">Damage</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Recorded By</label>
+              <input 
+                className="form-input" 
+                value={wasteForm.recordedBy} 
+                onChange={e => setWasteForm({ ...wasteForm, recordedBy: e.target.value })} 
+                placeholder="Your name"
+              />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Notes</label>
+              <textarea 
+                className="form-input" 
+                rows={3} 
+                value={wasteForm.notes} 
+                onChange={e => setWasteForm({ ...wasteForm, notes: e.target.value })} 
+                placeholder="Additional details about the waste..." 
+              />
+            </div>
+            {wasteForm.itemId && wasteForm.quantity && (
+              <div style={{ 
+                padding: '12px', 
+                borderRadius: '8px', 
+                background: 'var(--bg-elevated)',
+                marginTop: '16px'
+              }}>
+                {(() => {
+                  const item = items.find(i => i.id === wasteForm.itemId);
+                  if (!item) return null;
+                  const qty = parseFloat(wasteForm.quantity);
+                  const cost = calculateFifoCost(item.id, qty);
+                  return (
+                    <div>
+                      <div>Item: <strong>{item.name}</strong></div>
+                      <div>Quantity to waste: <strong>{qty} {item.unit}</strong></div>
+                      <div>Estimated cost: <strong style={{ color: 'var(--danger)' }}>{formatCurrency(cost)}</strong></div>
+                      <div>New quantity: <strong>{Math.max(0, item.quantity - qty)} {item.unit}</strong></div>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+          </div>
+          <div className="modal-footer">
+            <button className="btn btn-secondary" onClick={() => setShowWasteModal(false)}>Cancel</button>
+            <button className="btn btn-primary" onClick={recordWaste}>Record Waste</button>
           </div>
         </div>
       </div>
