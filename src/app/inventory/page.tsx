@@ -71,9 +71,12 @@ interface Supplier {
   email: string;
   phone: string;
   address?: string;
+  taxId?: string;
   leadTimeDays: number;
   paymentTerms: string;
+  rating: number;
   active: boolean;
+  notes?: string;
 }
 
 interface InventoryCount {
@@ -174,9 +177,9 @@ const mockWasteRecords: WasteRecord[] = [
 ];
 
 const mockSuppliers: Supplier[] = [
-  { id: 's1', name: 'Fresh Foods Co', contactName: 'Mike Johnson', email: 'orders@freshfoods.com', phone: '555-0101', leadTimeDays: 2, paymentTerms: 'Net 15', active: true },
-  { id: 's2', name: 'Prime Meats Ltd', contactName: 'Lisa Carter', email: 'sales@primemeats.com', phone: '555-0102', leadTimeDays: 3, paymentTerms: 'Net 30', active: true },
-  { id: 's3', name: 'Dairy Best', contactName: 'Tom Wilson', email: 'support@dairybest.com', phone: '555-0103', leadTimeDays: 1, paymentTerms: 'Net 7', active: true },
+  { id: 's1', name: 'Fresh Foods Co', contactName: 'Mike Johnson', email: 'orders@freshfoods.com', phone: '555-0101', leadTimeDays: 2, paymentTerms: 'Net 15', active: true, rating: 4 },
+  { id: 's2', name: 'Prime Meats Ltd', contactName: 'Lisa Carter', email: 'sales@primemeats.com', phone: '555-0102', leadTimeDays: 3, paymentTerms: 'Net 30', active: true, rating: 5 },
+  { id: 's3', name: 'Dairy Best', contactName: 'Tom Wilson', email: 'support@dairybest.com', phone: '555-0103', leadTimeDays: 1, paymentTerms: 'Net 7', active: true, rating: 3 },
 ];
 
 const mockCounts: InventoryCount[] = [
@@ -243,7 +246,6 @@ export default function InventoryPage() {
   const [movements, setMovements] = useState<StockMovement[]>(mockMovements);
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>(mockPurchaseOrders);
   const [wasteRecords, setWasteRecords] = useState<WasteRecord[]>(mockWasteRecords);
-  const [suppliers] = useState<Supplier[]>(mockSuppliers);
   const [counts] = useState<InventoryCount[]>(mockCounts);
   const [transfers] = useState<StockTransfer[]>(mockTransfers);
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>(mockAuditLogs);
@@ -323,6 +325,39 @@ export default function InventoryPage() {
   
   const [poForm, setPOForm] = useState<POFormData>(initialPOForm);
   const [poFormErrors, setPOFormErrors] = useState<Partial<Record<keyof POFormData | 'items', string>>>({});
+
+  interface NewSupplier {
+    name: string;
+    contactName: string;
+    phone: string;
+    email: string;
+    address: string;
+    taxId: string;
+    paymentTerms: string;
+    rating: number;
+    active: boolean;
+    notes: string;
+    leadTimeDays: number;
+  }
+
+  const initialSupplierForm: NewSupplier = {
+    name: '',
+    contactName: '',
+    phone: '',
+    email: '',
+    address: '',
+    taxId: '',
+    paymentTerms: 'Net 30',
+    rating: 3,
+    active: true,
+    notes: '',
+    leadTimeDays: 2,
+  };
+
+  const [suppliers, setSuppliers] = useState<Supplier[]>(mockSuppliers);
+  const [showAddSupplierModal, setShowAddSupplierModal] = useState(false);
+  const [supplierForm, setSupplierForm] = useState<NewSupplier>(initialSupplierForm);
+  const [supplierFormErrors, setSupplierFormErrors] = useState<Partial<Record<keyof NewSupplier, string>>>({});
 
   const poCalculations = useMemo(() => {
     const subtotal = poForm.items.reduce((sum, item) => {
@@ -948,6 +983,84 @@ export default function InventoryPage() {
     setShowWasteModal(true);
   };
 
+  const validateSupplierForm = (): boolean => {
+    const errors: Partial<Record<keyof NewSupplier, string>> = {};
+    
+    if (!supplierForm.name.trim()) errors.name = 'Supplier name is required';
+    if (!supplierForm.contactName.trim()) errors.contactName = 'Contact person is required';
+    if (!supplierForm.phone.trim()) errors.phone = 'Phone number is required';
+    if (!supplierForm.email.trim()) {
+      errors.email = 'Email address is required';
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(supplierForm.email)) {
+      errors.email = 'Please enter a valid email address';
+    }
+    if (supplierForm.leadTimeDays < 0) errors.leadTimeDays = 'Lead time cannot be negative';
+    if (supplierForm.rating < 1 || supplierForm.rating > 5) errors.rating = 'Rating must be between 1 and 5';
+
+    setSupplierFormErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
+  const handleSupplierInputChange = (field: keyof NewSupplier, value: string | number | boolean) => {
+    setSupplierForm(prev => ({ ...prev, [field]: value }));
+    if (supplierFormErrors[field]) {
+      setSupplierFormErrors(prev => {
+        const next = { ...prev };
+        delete next[field];
+        return next;
+      });
+    }
+  };
+
+  const handleSaveSupplier = useCallback(() => {
+    if (!validateSupplierForm()) return;
+
+    const newSupplier: Supplier = {
+      id: `s${Date.now()}`,
+      name: supplierForm.name.trim(),
+      contactName: supplierForm.contactName.trim(),
+      phone: supplierForm.phone.trim(),
+      email: supplierForm.email.trim(),
+      address: supplierForm.address.trim() || undefined,
+      taxId: supplierForm.taxId.trim() || undefined,
+      leadTimeDays: supplierForm.leadTimeDays,
+      paymentTerms: supplierForm.paymentTerms,
+      rating: supplierForm.rating,
+      active: supplierForm.active,
+      notes: supplierForm.notes.trim() || undefined,
+    };
+
+    setSuppliers(prev => [...prev, newSupplier]);
+
+    // Add audit log entry
+    const newAuditEntry: AuditLogEntry = {
+      id: `a${Date.now()}`,
+      action: 'CREATE',
+      entityType: 'Supplier',
+      entityId: newSupplier.id,
+      newValue: JSON.stringify({
+        name: newSupplier.name,
+        contact: newSupplier.contactName,
+        email: newSupplier.email
+      }),
+      userId: 'u1',
+      userName: 'John Manager',
+      createdAt: new Date(),
+    };
+    setAuditLogs(prev => [newAuditEntry, ...prev]);
+
+    // Reset form and close modal
+    setSupplierForm(initialSupplierForm);
+    setSupplierFormErrors({});
+    setShowAddSupplierModal(false);
+  }, [supplierForm]);
+
+  const openAddSupplierModal = () => {
+    setSupplierForm(initialSupplierForm);
+    setSupplierFormErrors({});
+    setShowAddSupplierModal(true);
+  };
+
   const tabs: { id: TabView; label: string }[] = [
     { id: 'overview', label: 'Overview' },
     { id: 'items', label: 'Items' },
@@ -1245,7 +1358,7 @@ export default function InventoryPage() {
     <div className="card">
       <div className="flex justify-between items-center mb-4">
         <h3 className="card-title">Suppliers</h3>
-        <button className="btn btn-primary">Add Supplier</button>
+        <button className="btn btn-primary" onClick={openAddSupplierModal}>Add Supplier</button>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {suppliers.map(s => (
@@ -1256,6 +1369,10 @@ export default function InventoryPage() {
             <div className="text-sm">{s.phone}</div>
             <div className="text-sm mt-2 text-gray-500">Lead Time: {s.leadTimeDays} days</div>
             <div className="text-sm text-gray-500">Terms: {s.paymentTerms}</div>
+            <div className="text-sm mt-1">
+              <span className="text-yellow-500">{'★'.repeat(s.rating)}{'☆'.repeat(5 - s.rating)}</span>
+              {!s.active && <span className="ml-2 text-red-600 text-xs">(Inactive)</span>}
+            </div>
             <div className="flex gap-2 mt-3">
               <button className="btn btn-sm btn-secondary">Edit</button>
               <button className="btn btn-sm btn-secondary">View POs</button>
@@ -2303,6 +2420,167 @@ export default function InventoryPage() {
           <div className="modal-footer">
             <button className="btn btn-secondary" onClick={() => setShowWasteModal(false)}>Cancel</button>
             <button className="btn btn-danger" onClick={handleRecordWaste}>Record Waste</button>
+          </div>
+        </div>
+      </div>
+
+      {/* Add Supplier Modal */}
+      <div className={`modal-overlay ${showAddSupplierModal ? 'active' : ''}`} onClick={() => setShowAddSupplierModal(false)}>
+        <div className="modal" style={{ maxWidth: '700px' }} onClick={e => e.stopPropagation()}>
+          <div className="modal-header">
+            <h2 className="modal-title">Add New Supplier</h2>
+            <button className="modal-close" onClick={() => setShowAddSupplierModal(false)}>×</button>
+          </div>
+          <div className="modal-body">
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="form-group">
+                  <label className="form-label">Supplier Name *</label>
+                  <input
+                    type="text"
+                    className={`form-input ${supplierFormErrors.name ? 'error' : ''}`}
+                    value={supplierForm.name}
+                    onChange={(e) => handleSupplierInputChange('name', e.target.value)}
+                    placeholder="Company name"
+                  />
+                  {supplierFormErrors.name && <div className="form-error text-red-600 text-sm mt-1">{supplierFormErrors.name}</div>}
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Contact Person *</label>
+                  <input
+                    type="text"
+                    className={`form-input ${supplierFormErrors.contactName ? 'error' : ''}`}
+                    value={supplierForm.contactName}
+                    onChange={(e) => handleSupplierInputChange('contactName', e.target.value)}
+                    placeholder="Primary contact name"
+                  />
+                  {supplierFormErrors.contactName && <div className="form-error text-red-600 text-sm mt-1">{supplierFormErrors.contactName}</div>}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="form-group">
+                  <label className="form-label">Phone Number *</label>
+                  <input
+                    type="tel"
+                    className={`form-input ${supplierFormErrors.phone ? 'error' : ''}`}
+                    value={supplierForm.phone}
+                    onChange={(e) => handleSupplierInputChange('phone', e.target.value)}
+                    placeholder="(555) 123-4567"
+                  />
+                  {supplierFormErrors.phone && <div className="form-error text-red-600 text-sm mt-1">{supplierFormErrors.phone}</div>}
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Email Address *</label>
+                  <input
+                    type="email"
+                    className={`form-input ${supplierFormErrors.email ? 'error' : ''}`}
+                    value={supplierForm.email}
+                    onChange={(e) => handleSupplierInputChange('email', e.target.value)}
+                    placeholder="orders@supplier.com"
+                  />
+                  {supplierFormErrors.email && <div className="form-error text-red-600 text-sm mt-1">{supplierFormErrors.email}</div>}
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Physical Address</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  value={supplierForm.address}
+                  onChange={(e) => handleSupplierInputChange('address', e.target.value)}
+                  placeholder="Street address, city, state, zip"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="form-group">
+                  <label className="form-label">Tax ID</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    value={supplierForm.taxId}
+                    onChange={(e) => handleSupplierInputChange('taxId', e.target.value)}
+                    placeholder="Tax identification number"
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Payment Terms</label>
+                  <select
+                    className="form-input"
+                    value={supplierForm.paymentTerms}
+                    onChange={(e) => handleSupplierInputChange('paymentTerms', e.target.value)}
+                  >
+                    <option value="Net 7">Net 7</option>
+                    <option value="Net 15">Net 15</option>
+                    <option value="Net 30">Net 30</option>
+                    <option value="Net 45">Net 45</option>
+                    <option value="Net 60">Net 60</option>
+                    <option value="COD">Cash on Delivery</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-4">
+                <div className="form-group">
+                  <label className="form-label">Lead Time (days)</label>
+                  <input
+                    type="number"
+                    className="form-input"
+                    value={supplierForm.leadTimeDays}
+                    onChange={(e) => handleSupplierInputChange('leadTimeDays', parseInt(e.target.value) || 0)}
+                    min="0"
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Supplier Rating</label>
+                  <div className="flex gap-1 mt-1">
+                    {[1, 2, 3, 4, 5].map(star => (
+                      <button
+                        key={star}
+                        type="button"
+                        onClick={() => handleSupplierInputChange('rating', star)}
+                        className={`text-2xl ${star <= supplierForm.rating ? 'text-yellow-500' : 'text-gray-300'}`}
+                      >
+                        ★
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Status</label>
+                  <select
+                    className="form-input"
+                    value={supplierForm.active ? 'active' : 'inactive'}
+                    onChange={(e) => handleSupplierInputChange('active', e.target.value === 'active')}
+                  >
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Notes</label>
+                <textarea
+                  className="form-input"
+                  value={supplierForm.notes}
+                  onChange={(e) => handleSupplierInputChange('notes', e.target.value)}
+                  placeholder="Additional notes about this supplier (optional)"
+                  rows={3}
+                />
+              </div>
+            </div>
+          </div>
+          <div className="modal-footer">
+            <button className="btn btn-secondary" onClick={() => setShowAddSupplierModal(false)}>Cancel</button>
+            <button className="btn btn-primary" onClick={handleSaveSupplier}>Add Supplier</button>
           </div>
         </div>
       </div>
