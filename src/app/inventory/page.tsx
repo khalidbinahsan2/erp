@@ -242,7 +242,7 @@ export default function InventoryPage() {
   const [activeTab, setActiveTab] = useState<TabView>('overview');
   const [movements, setMovements] = useState<StockMovement[]>(mockMovements);
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>(mockPurchaseOrders);
-  const [wasteRecords] = useState<WasteRecord[]>(mockWasteRecords);
+  const [wasteRecords, setWasteRecords] = useState<WasteRecord[]>(mockWasteRecords);
   const [suppliers] = useState<Supplier[]>(mockSuppliers);
   const [counts] = useState<InventoryCount[]>(mockCounts);
   const [transfers] = useState<StockTransfer[]>(mockTransfers);
@@ -274,6 +274,26 @@ export default function InventoryPage() {
   }>>([]);
   const [deliveryNotes, setDeliveryNotes] = useState('');
   const [receivedBy, setReceivedBy] = useState('');
+  const [showWasteModal, setShowWasteModal] = useState(false);
+  
+  interface WasteFormData {
+    itemId: string;
+    quantity: number;
+    reason: 'spoiled' | 'expired' | 'damaged' | 'over-prep' | 'other';
+    notes: string;
+    recordedBy: string;
+  }
+  
+  const initialWasteForm: WasteFormData = {
+    itemId: '',
+    quantity: 0,
+    reason: 'spoiled',
+    notes: '',
+    recordedBy: '',
+  };
+  
+  const [wasteForm, setWasteForm] = useState<WasteFormData>(initialWasteForm);
+  const [wasteFormErrors, setWasteFormErrors] = useState<Partial<Record<keyof WasteFormData, string>>>({});
   
   interface POFormItem {
     itemId: string;
@@ -826,6 +846,108 @@ export default function InventoryPage() {
     setShowMovementModal(true);
   };
 
+  const validateWasteForm = (): boolean => {
+    const errors: Partial<Record<keyof WasteFormData, string>> = {};
+    
+    if (!wasteForm.itemId) errors.itemId = 'Please select an inventory item';
+    if (wasteForm.quantity <= 0) errors.quantity = 'Quantity must be greater than 0';
+    if (!wasteForm.recordedBy.trim()) errors.recordedBy = 'Please enter who is recording this waste';
+    
+    const selectedItem = items.find(i => i.id === wasteForm.itemId);
+    if (selectedItem && wasteForm.quantity > selectedItem.quantity) {
+      errors.quantity = `Insufficient stock. Available: ${selectedItem.quantity} ${selectedItem.unit}`;
+    }
+
+    setWasteFormErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
+  const handleWasteInputChange = (field: keyof WasteFormData, value: string | number) => {
+    setWasteForm(prev => ({ ...prev, [field]: value }));
+    if (wasteFormErrors[field]) {
+      setWasteFormErrors(prev => {
+        const next = { ...prev };
+        delete next[field];
+        return next;
+      });
+    }
+  };
+
+  const handleRecordWaste = useCallback(() => {
+    if (!validateWasteForm()) return;
+
+    const selectedItem = items.find(i => i.id === wasteForm.itemId)!;
+    const previousQuantity = selectedItem.quantity;
+    const newQuantity = previousQuantity - wasteForm.quantity;
+    const wasteCost = wasteForm.quantity * selectedItem.costPerUnit;
+
+    // Create WasteLog entry
+    const newWasteRecord: WasteRecord = {
+      id: `w${Date.now()}`,
+      itemId: wasteForm.itemId,
+      itemName: selectedItem.name,
+      quantity: wasteForm.quantity,
+      reason: wasteForm.notes || 'No reason provided',
+      category: wasteForm.reason,
+      createdAt: new Date(),
+      userId: 'u1',
+      cost: wasteCost,
+    };
+
+    // Create stock movement of type 'waste'
+    const newMovement: StockMovement = {
+      id: `m${Date.now()}`,
+      itemId: wasteForm.itemId,
+      itemName: selectedItem.name,
+      type: 'waste',
+      quantity: -wasteForm.quantity,
+      previousQuantity,
+      newQuantity,
+      reason: `Waste: ${wasteForm.reason.replace('-', ' ')}`,
+      userId: 'u1',
+      userName: wasteForm.recordedBy,
+      createdAt: new Date(),
+    };
+
+    // Update inventory quantity
+    setItems(prev => prev.map(item => 
+      item.id === wasteForm.itemId 
+        ? { ...item, quantity: newQuantity }
+        : item
+    ));
+
+    // Add waste record
+    setWasteRecords(prev => [newWasteRecord, ...prev]);
+
+    // Add stock movement
+    setMovements(prev => [newMovement, ...prev]);
+
+    // Add audit log entry
+    const newAuditEntry: AuditLogEntry = {
+      id: `a${Date.now()}`,
+      action: 'CREATE',
+      entityType: 'WasteRecord',
+      entityId: newWasteRecord.id,
+      previousValue: JSON.stringify({ quantity: previousQuantity }),
+      newValue: JSON.stringify({ quantity: newQuantity, wasteCost }),
+      userId: 'u1',
+      userName: wasteForm.recordedBy,
+      createdAt: new Date(),
+    };
+    setAuditLogs(prev => [newAuditEntry, ...prev]);
+
+    // Reset form and close modal
+    setWasteForm(initialWasteForm);
+    setWasteFormErrors({});
+    setShowWasteModal(false);
+  }, [wasteForm, items]);
+
+  const openWasteModal = () => {
+    setWasteForm(initialWasteForm);
+    setWasteFormErrors({});
+    setShowWasteModal(true);
+  };
+
   const tabs: { id: TabView; label: string }[] = [
     { id: 'overview', label: 'Overview' },
     { id: 'items', label: 'Items' },
@@ -902,10 +1024,13 @@ export default function InventoryPage() {
 
   const renderItems = () => (
     <div className="card">
-      <div className="flex justify-between items-center mb-4">
-        <h3 className="card-title">Inventory Items</h3>
-        <button className="btn btn-primary" onClick={openAddItemModal}>Add Item</button>
-      </div>
+       <div className="flex justify-between items-center mb-4">
+         <h3 className="card-title">Inventory Items</h3>
+         <div className="flex gap-2">
+           <button className="btn btn-danger" onClick={openWasteModal}>Record Waste</button>
+           <button className="btn btn-primary" onClick={openAddItemModal}>Add Item</button>
+         </div>
+       </div>
       <div className="overflow-x-auto">
         <table className="w-full">
           <thead>
@@ -1084,7 +1209,7 @@ export default function InventoryPage() {
       <div className="card">
         <div className="flex justify-between items-center mb-4">
           <h3 className="card-title">Waste Log</h3>
-          <button className="btn btn-danger">Record Waste</button>
+           <button className="btn btn-danger" onClick={openWasteModal}>Record Waste</button>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full">
@@ -1923,7 +2048,7 @@ export default function InventoryPage() {
         </div>
       </div>
 
-      {/* Receive Items Modal */}
+       {/* Receive Items Modal */}
       <div className={`modal-overlay ${showReceiveModal ? 'active' : ''}`} onClick={() => setShowReceiveModal(false)}>
         <div className="modal" style={{ maxWidth: '1000px' }} onClick={e => e.stopPropagation()}>
           <div className="modal-header">
@@ -2092,6 +2217,92 @@ export default function InventoryPage() {
             <button className="btn btn-primary" onClick={submitReceive} disabled={receiveItems.every(i => i.quantity === 0)} style={{ backgroundColor: '#10b981', borderColor: '#10b981' }}>
               ✓ Receive Items
             </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Record Waste Modal */}
+      <div className={`modal-overlay ${showWasteModal ? 'active' : ''}`} onClick={() => setShowWasteModal(false)}>
+        <div className="modal" style={{ maxWidth: '600px' }} onClick={e => e.stopPropagation()}>
+          <div className="modal-header">
+            <h2 className="modal-title">Record Waste</h2>
+            <button className="modal-close" onClick={() => setShowWasteModal(false)}>×</button>
+          </div>
+          <div className="modal-body">
+            <div className="space-y-4">
+              <div className="form-group">
+                <label className="form-label">Inventory Item *</label>
+                <select
+                  className={`form-input ${wasteFormErrors.itemId ? 'error' : ''}`}
+                  value={wasteForm.itemId}
+                  onChange={(e) => handleWasteInputChange('itemId', e.target.value)}
+                >
+                  <option value="">Select item</option>
+                  {items.map(item => (
+                    <option key={item.id} value={item.id}>
+                      {item.name} ({item.quantity} {item.unit} available)
+                    </option>
+                  ))}
+                </select>
+                {wasteFormErrors.itemId && <div className="form-error text-red-600 text-sm mt-1">{wasteFormErrors.itemId}</div>}
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Waste Quantity *</label>
+                <input
+                  type="number"
+                  className={`form-input ${wasteFormErrors.quantity ? 'error' : ''}`}
+                  value={wasteForm.quantity}
+                  onChange={(e) => handleWasteInputChange('quantity', parseFloat(e.target.value) || 0)}
+                  min="0"
+                  step="any"
+                  placeholder="Enter quantity to waste"
+                />
+                {wasteFormErrors.quantity && <div className="form-error text-red-600 text-sm mt-1">{wasteFormErrors.quantity}</div>}
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Waste Reason *</label>
+                <select
+                  className="form-input"
+                  value={wasteForm.reason}
+                  onChange={(e) => handleWasteInputChange('reason', e.target.value as WasteFormData['reason'])}
+                >
+                  <option value="spoiled">Spoilage</option>
+                  <option value="over-prep">Overprep</option>
+                  <option value="expired">Expiry</option>
+                  <option value="damaged">Damage</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Notes</label>
+                <textarea
+                  className="form-input"
+                  value={wasteForm.notes}
+                  onChange={(e) => handleWasteInputChange('notes', e.target.value)}
+                  placeholder="Add additional notes (optional)"
+                  rows={3}
+                />
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Recorded By *</label>
+                <input
+                  type="text"
+                  className={`form-input ${wasteFormErrors.recordedBy ? 'error' : ''}`}
+                  value={wasteForm.recordedBy}
+                  onChange={(e) => handleWasteInputChange('recordedBy', e.target.value)}
+                  placeholder="Name of person recording this waste"
+                />
+                {wasteFormErrors.recordedBy && <div className="form-error text-red-600 text-sm mt-1">{wasteFormErrors.recordedBy}</div>}
+              </div>
+            </div>
+          </div>
+          <div className="modal-footer">
+            <button className="btn btn-secondary" onClick={() => setShowWasteModal(false)}>Cancel</button>
+            <button className="btn btn-danger" onClick={handleRecordWaste}>Record Waste</button>
           </div>
         </div>
       </div>
