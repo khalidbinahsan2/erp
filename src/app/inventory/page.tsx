@@ -47,6 +47,8 @@ interface PurchaseOrder {
   taxAmount: number;
   discountAmount: number;
   total: number;
+  returnAmount: number;
+  remainingBalance: number;
   notes?: string;
 }
 
@@ -116,6 +118,34 @@ function formatDate(date: Date): string {
   return new Date(date).toLocaleDateString();
 }
 
+// Calculate order financial values for partial receipts
+function calculatePOFinancials(order: PurchaseOrder) {
+  const totalOrderedValue = order.subtotal;
+  const totalReceivedValue = order.items.reduce((sum, item) => {
+    return sum + (item.receivedQuantity * item.unitCost);
+  }, 0);
+  
+  const ratio = totalOrderedValue > 0 ? totalReceivedValue / totalOrderedValue : 0;
+  
+  const proportionalShipping = order.shippingCost * ratio;
+  const proportionalTax = order.taxAmount * ratio;
+  const proportionalDiscount = order.discountAmount * ratio;
+  
+  const receivedTotal = totalReceivedValue + proportionalShipping + proportionalTax - proportionalDiscount;
+  const returnAmount = order.total - receivedTotal;
+  const remainingBalance = receivedTotal;
+  
+  return {
+    totalReceivedValue,
+    proportionalShipping,
+    proportionalTax,
+    proportionalDiscount,
+    receivedTotal,
+    returnAmount: Math.max(0, returnAmount),
+    remainingBalance
+  };
+}
+
 // Mock data
 const mockMovements: StockMovement[] = [
   { id: 'm1', itemId: 'inv1', itemName: 'Chicken Breast', type: 'received', quantity: 50, previousQuantity: 20, newQuantity: 70, userId: 'u1', userName: 'John Manager', createdAt: new Date(Date.now() - 3600000) },
@@ -128,13 +158,13 @@ const mockPurchaseOrders: PurchaseOrder[] = [
   { id: 'po1', supplierId: 's1', supplierName: 'Fresh Foods Co', status: 'received', items: [
     { itemId: 'inv1', itemName: 'Chicken Breast', orderedQuantity: 100, receivedQuantity: 100, unitCost: 2.5 },
     { itemId: 'inv2', itemName: 'Fresh Lettuce', orderedQuantity: 50, receivedQuantity: 50, unitCost: 1.2 }
-  ], orderedAt: new Date(Date.now() - 172800000), receivedAt: new Date(Date.now() - 86400000), subtotal: 310, shippingCost: 0, taxPercent: 0, discountPercent: 0, taxAmount: 0, discountAmount: 0, total: 310 },
+  ], orderedAt: new Date(Date.now() - 172800000), receivedAt: new Date(Date.now() - 86400000), subtotal: 310, shippingCost: 0, taxPercent: 0, discountPercent: 0, taxAmount: 0, discountAmount: 0, total: 310, returnAmount: 0, remainingBalance: 310 },
   { id: 'po2', supplierId: 's2', supplierName: 'Prime Meats Ltd', status: 'partial', items: [
     { itemId: 'inv5', itemName: 'Ground Beef', orderedQuantity: 80, receivedQuantity: 40, unitCost: 3.2 }
-  ], orderedAt: new Date(Date.now() - 86400000), expectedAt: new Date(Date.now() + 86400000), subtotal: 256, shippingCost: 0, taxPercent: 0, discountPercent: 0, taxAmount: 0, discountAmount: 0, total: 256 },
+  ], orderedAt: new Date(Date.now() - 86400000), expectedAt: new Date(Date.now() + 86400000), subtotal: 256, shippingCost: 0, taxPercent: 0, discountPercent: 0, taxAmount: 0, discountAmount: 0, total: 256, returnAmount: 128, remainingBalance: 128 },
   { id: 'po3', supplierId: 's1', supplierName: 'Fresh Foods Co', status: 'sent', items: [
     { itemId: 'inv3', itemName: 'Tomatoes', orderedQuantity: 60, receivedQuantity: 0, unitCost: 0.9 }
-  ], orderedAt: new Date(Date.now()), expectedAt: new Date(Date.now() + 172800000), subtotal: 54, shippingCost: 0, taxPercent: 0, discountPercent: 0, taxAmount: 0, discountAmount: 0, total: 54 },
+  ], orderedAt: new Date(Date.now()), expectedAt: new Date(Date.now() + 172800000), subtotal: 54, shippingCost: 0, taxPercent: 0, discountPercent: 0, taxAmount: 0, discountAmount: 0, total: 54, returnAmount: 0, remainingBalance: 0 },
 ];
 
 const mockWasteRecords: WasteRecord[] = [
@@ -374,6 +404,8 @@ export default function InventoryPage() {
       taxAmount: poCalculations.taxAmount,
       discountAmount: poCalculations.discountAmount,
       total: poTotal,
+      returnAmount: 0,
+      remainingBalance: 0,
       notes: poForm.notes || undefined,
     };
 
@@ -547,11 +579,20 @@ export default function InventoryPage() {
       
       setAuditLogs(prev => [...newAuditEntries, ...prev]);
       
-      return {
+      // Calculate return amount and remaining balance
+      const updatedPO = {
         ...o,
         items: updatedItems,
         status: newStatus,
         receivedAt: allReceived ? today : o.receivedAt,
+      };
+      
+      const financials = calculatePOFinancials(updatedPO);
+      
+      return {
+        ...updatedPO,
+        returnAmount: financials.returnAmount,
+        remainingBalance: financials.remainingBalance,
       };
     }));
     
