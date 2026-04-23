@@ -155,7 +155,43 @@ export default function InventoryPage() {
   
   // Advanced Features State
   const [wasteLogs, setWasteLogs] = useState<WasteLog[]>([]);
-  const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
+  const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([
+    { id: 'AUDIT-001', itemId: '1', itemName: 'Arborio Rice', action: 'stock received', previousValue: 10, newValue: 30, userId: '2', userName: 'Sarah Johnson', timestamp: '2026-01-15T08:30:00Z', ipAddress: '192.168.1.101' },
+    { id: 'AUDIT-002', itemId: '2', itemName: 'Atlantic Salmon', action: 'stock used', previousValue: 12, newValue: 9, userId: '2', userName: 'Sarah Johnson', timestamp: '2026-01-17T14:45:00Z', ipAddress: '192.168.1.101' },
+    { id: 'AUDIT-003', itemId: '4', itemName: 'Parmesan Cheese', action: 'adjustment', previousValue: 5, newValue: 4, userId: '1', userName: 'Marcus Chen', timestamp: '2026-01-20T11:20:00Z', ipAddress: '192.168.1.100' },
+    { id: 'AUDIT-004', itemId: '5', itemName: 'Olive Oil', action: 'waste', previousValue: 8, newValue: 6, userId: '2', userName: 'Sarah Johnson', timestamp: '2026-01-22T09:15:00Z', ipAddress: '192.168.1.101' },
+    { id: 'AUDIT-005', itemId: '3', itemName: 'Wagyu Beef', action: 'transfer', previousValue: { location: 'Freezer' }, newValue: { location: 'Kitchen Prep' }, userId: '2', userName: 'Sarah Johnson', timestamp: '2026-01-25T16:00:00Z', ipAddress: '192.168.1.101' },
+    { id: 'AUDIT-006', itemId: '6', itemName: 'Ramen Noodles', action: 'item created', previousValue: null, newValue: { quantity: 20, unit: 'kg', costPerUnit: 3.50 }, userId: '1', userName: 'Marcus Chen', timestamp: '2026-02-02T10:00:00Z', ipAddress: '192.168.1.100' },
+    { id: 'AUDIT-007', itemId: '1', itemName: 'Arborio Rice', action: 'stock used', previousValue: 30, newValue: 25, userId: '3', userName: 'Mike Wilson', timestamp: '2026-02-05T13:30:00Z', ipAddress: '192.168.1.102' },
+    { id: 'AUDIT-008', itemId: '12', itemName: 'Lettuce', action: 'waste', previousValue: 5, newValue: 3, userId: '2', userName: 'Sarah Johnson', timestamp: '2026-02-08T08:45:00Z', ipAddress: '192.168.1.101' },
+    { id: 'AUDIT-009', itemId: '14', itemName: 'Lemon', action: 'stock received', previousValue: 15, newValue: 45, userId: '0', userName: 'Admin', timestamp: '2026-02-10T07:20:00Z', ipAddress: '127.0.0.1' },
+    { id: 'AUDIT-010', itemId: '7', itemName: 'Napkins', action: 'item edited', previousValue: { reorderLevel: 50 }, newValue: { reorderLevel: 100 }, userId: '1', userName: 'Marcus Chen', timestamp: '2026-02-14T15:10:00Z', ipAddress: '192.168.1.100' },
+    { id: 'AUDIT-011', itemId: '2', itemName: 'Atlantic Salmon', action: 'count performed', previousValue: { systemQty: 9 }, newValue: { countedQty: 8 }, userId: '1', userName: 'Marcus Chen', timestamp: '2026-02-18T09:00:00Z', ipAddress: '192.168.1.100' },
+    { id: 'AUDIT-012', itemId: '11', itemName: 'Black Truffle', action: 'stock received', previousValue: 0.3, newValue: 0.8, userId: '1', userName: 'Marcus Chen', timestamp: '2026-02-21T11:30:00Z', ipAddress: '192.168.1.100' },
+    { id: 'AUDIT-013', itemId: '3', itemName: 'Wagyu Beef', action: 'stock used', previousValue: 15, newValue: 12, userId: '2', userName: 'Sarah Johnson', timestamp: '2026-02-25T18:20:00Z', ipAddress: '192.168.1.101' },
+    { id: 'AUDIT-014', itemId: '9', itemName: 'House Red Wine', action: 'stock received', previousValue: 24, newValue: 36, userId: '0', userName: 'Admin', timestamp: '2026-03-01T08:00:00Z', ipAddress: '127.0.0.1' },
+    { id: 'AUDIT-015', itemId: '13', itemName: 'Tomatoes', action: 'waste', previousValue: 10, newValue: 8, userId: '3', userName: 'Mike Wilson', timestamp: '2026-03-04T14:15:00Z', ipAddress: '192.168.1.102' },
+    { id: 'AUDIT-016', itemId: '5', itemName: 'Olive Oil', action: 'stock used', previousValue: 22, newValue: 20, userId: '2', userName: 'Sarah Johnson', timestamp: '2026-03-07T12:45:00Z', ipAddress: '192.168.1.101' },
+    { id: 'AUDIT-017', itemId: '10', itemName: 'Sparkling Water', action: 'adjustment', previousValue: 45, newValue: 48, userId: '1', userName: 'Marcus Chen', timestamp: '2026-03-10T16:30:00Z', ipAddress: '192.168.1.100' },
+    { id: 'AUDIT-018', itemId: '4', itemName: 'Parmesan Cheese', action: 'stock received', previousValue: 4, newValue: 7, userId: '0', userName: 'Admin', timestamp: '2026-03-12T07:50:00Z', ipAddress: '127.0.0.1' },
+    { id: 'AUDIT-019', itemId: '6', itemName: 'Ramen Noodles', action: 'item deleted', previousValue: { id: '6', name: 'Ramen Noodles' }, newValue: null, userId: '1', userName: 'Marcus Chen', timestamp: '2026-03-15T10:20:00Z', ipAddress: '192.168.1.100' },
+    { id: 'AUDIT-020', itemId: '8', itemName: 'To-Go Containers', action: 'transfer', previousValue: { location: 'Dry Storage' }, newValue: { location: 'Kitchen Prep' }, userId: '3', userName: 'Mike Wilson', timestamp: '2026-03-18T15:00:00Z', ipAddress: '192.168.1.102' },
+    { id: 'AUDIT-021', itemId: '1', itemName: 'Arborio Rice', action: 'count performed', previousValue: { systemQty: 20 }, newValue: { countedQty: 19 }, userId: '1', userName: 'Marcus Chen', timestamp: '2026-03-22T08:30:00Z', ipAddress: '192.168.1.100' },
+    { id: 'AUDIT-022', itemId: '14', itemName: 'Lemon', action: 'stock used', previousValue: 45, newValue: 30, userId: '2', userName: 'Sarah Johnson', timestamp: '2026-03-25T17:45:00Z', ipAddress: '192.168.1.101' },
+    { id: 'AUDIT-023', itemId: '15', itemName: 'Mint Leaves', action: 'waste', previousValue: 0.6, newValue: 0.5, userId: '2', userName: 'Sarah Johnson', timestamp: '2026-03-28T09:10:00Z', ipAddress: '192.168.1.101' },
+    { id: 'AUDIT-024', itemId: '2', itemName: 'Atlantic Salmon', action: 'stock received', previousValue: 8, newValue: 18, userId: '0', userName: 'Admin', timestamp: '2026-04-01T06:45:00Z', ipAddress: '127.0.0.1' },
+    { id: 'AUDIT-025', itemId: '3', itemName: 'Wagyu Beef', action: 'item edited', previousValue: { reorderLevel: 3 }, newValue: { reorderLevel: 4 }, userId: '1', userName: 'Marcus Chen', timestamp: '2026-04-04T14:00:00Z', ipAddress: '192.168.1.100' },
+    { id: 'AUDIT-026', itemId: '12', itemName: 'Lettuce', action: 'stock received', previousValue: 3, newValue: 8, userId: '3', userName: 'Mike Wilson', timestamp: '2026-04-07T08:20:00Z', ipAddress: '192.168.1.102' },
+    { id: 'AUDIT-027', itemId: '7', itemName: 'Napkins', action: 'stock used', previousValue: 500, newValue: 420, userId: '3', userName: 'Mike Wilson', timestamp: '2026-04-10T20:30:00Z', ipAddress: '192.168.1.102' },
+    { id: 'AUDIT-028', itemId: '11', itemName: 'Black Truffle', action: 'stock used', previousValue: 0.8, newValue: 0.5, userId: '2', userName: 'Sarah Johnson', timestamp: '2026-04-12T13:15:00Z', ipAddress: '192.168.1.101' },
+    { id: 'AUDIT-029', itemId: '13', itemName: 'Tomatoes', action: 'count performed', previousValue: { systemQty: 8 }, newValue: { countedQty: 8 }, userId: '1', userName: 'Marcus Chen', timestamp: '2026-04-14T09:45:00Z', ipAddress: '192.168.1.100' },
+    { id: 'AUDIT-030', itemId: '9', itemName: 'House Red Wine', action: 'stock used', previousValue: 36, newValue: 32, userId: '3', userName: 'Mike Wilson', timestamp: '2026-04-16T21:00:00Z', ipAddress: '192.168.1.102' },
+    { id: 'AUDIT-031', itemId: '5', itemName: 'Olive Oil', action: 'adjustment', previousValue: 18, newValue: 20, userId: '1', userName: 'Marcus Chen', timestamp: '2026-04-18T11:30:00Z', ipAddress: '192.168.1.100' },
+    { id: 'AUDIT-032', itemId: '10', itemName: 'Sparkling Water', action: 'stock received', previousValue: 48, newValue: 60, userId: '0', userName: 'Admin', timestamp: '2026-04-20T07:10:00Z', ipAddress: '127.0.0.1' },
+    { id: 'AUDIT-033', itemId: '8', itemName: 'To-Go Containers', action: 'waste', previousValue: 150, newValue: 145, userId: '3', userName: 'Mike Wilson', timestamp: '2026-04-21T15:45:00Z', ipAddress: '192.168.1.102' },
+    { id: 'AUDIT-034', itemId: '4', itemName: 'Parmesan Cheese', action: 'transfer', previousValue: { location: 'Walk-in Cooler' }, newValue: { location: 'Kitchen Prep' }, userId: '2', userName: 'Sarah Johnson', timestamp: '2026-04-22T10:00:00Z', ipAddress: '192.168.1.101' },
+    { id: 'AUDIT-035', itemId: '6', itemName: 'Ramen Noodles', action: 'item created', previousValue: null, newValue: { quantity: 25, unit: 'kg', costPerUnit: 3.50 }, userId: '1', userName: 'Marcus Chen', timestamp: '2026-04-23T05:15:00Z', ipAddress: '192.168.1.100' },
+  ]);
   const [transfers, setTransfers] = useState<StockTransfer[]>([]);
   const [supplierPerformance, setSupplierPerformance] = useState<SupplierPerformance[]>([]);
   const [locations, setLocations] = useState<Location[]>([
