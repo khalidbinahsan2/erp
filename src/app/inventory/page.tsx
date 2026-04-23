@@ -234,6 +234,16 @@ export default function InventoryPage() {
   const [showCreatePOModal, setShowCreatePOModal] = useState(false);
   const [selectedPO, setSelectedPO] = useState<PurchaseOrder | null>(null);
   const [showViewPOModal, setShowViewPOModal] = useState(false);
+  const [showReceiveModal, setShowReceiveModal] = useState(false);
+  const [receiveItems, setReceiveItems] = useState<Array<{
+    itemId: string;
+    quantity: number;
+    cost: number;
+    batchNumber: string;
+    expiryDate: string;
+  }>>([]);
+  const [deliveryNotes, setDeliveryNotes] = useState('');
+  const [receivedBy, setReceivedBy] = useState('');
   
   interface POFormItem {
     itemId: string;
@@ -403,6 +413,154 @@ export default function InventoryPage() {
     setSelectedPO(po);
     setShowViewPOModal(true);
   };
+
+  const openReceiveModal = (po: PurchaseOrder) => {
+    setSelectedPO(po);
+    setReceiveItems(po.items.map(item => ({
+      itemId: item.itemId,
+      quantity: item.orderedQuantity - item.receivedQuantity,
+      cost: item.unitCost,
+      batchNumber: '',
+      expiryDate: '',
+    })));
+    setDeliveryNotes('');
+    setReceivedBy('');
+    setShowReceiveModal(true);
+  };
+
+  const updateReceiveQuantity = (itemId: string, qty: number) => {
+    const orderItem = selectedPO?.items.find(i => i.itemId === itemId);
+    const maxQty = orderItem ? orderItem.orderedQuantity - orderItem.receivedQuantity : 0;
+    const validQty = Math.max(0, Math.min(qty, maxQty));
+    
+    setReceiveItems(prev => prev.map(i => 
+      i.itemId === itemId ? { ...i, quantity: validQty } : i
+    ));
+  };
+
+  const updateReceiveCost = (itemId: string, cost: number) => {
+    setReceiveItems(prev => prev.map(i => 
+      i.itemId === itemId ? { ...i, cost: Math.max(0, cost) } : i
+    ));
+  };
+
+  const updateReceiveBatch = (itemId: string, batchNumber: string) => {
+    setReceiveItems(prev => prev.map(i => 
+      i.itemId === itemId ? { ...i, batchNumber } : i
+    ));
+  };
+
+  const updateReceiveExpiry = (itemId: string, expiryDate: string) => {
+    setReceiveItems(prev => prev.map(i => 
+      i.itemId === itemId ? { ...i, expiryDate } : i
+    ));
+  };
+
+  const submitReceive = useCallback(() => {
+    if (!selectedPO || receiveItems.every(i => i.quantity === 0)) return;
+    const today = new Date();
+    
+    const receivedItems = receiveItems.filter(i => i.quantity > 0);
+    
+    setPurchaseOrders(prev => prev.map(o => {
+      if (o.id !== selectedPO.id) return o;
+      
+      const updatedItems = o.items.map(item => {
+        const receiveItem = receivedItems.find(ri => ri.itemId === item.itemId);
+        if (receiveItem) {
+          return {
+            ...item,
+            receivedQuantity: item.receivedQuantity + receiveItem.quantity,
+            unitCost: receiveItem.cost,
+          };
+        }
+        return item;
+      });
+      
+      const allReceived = updatedItems.every(item => item.receivedQuantity >= item.orderedQuantity);
+      const anyReceived = updatedItems.some(item => item.receivedQuantity > 0);
+      
+      const newStatus: POStatus = allReceived ? 'received' : anyReceived ? 'partial' : o.status;
+      
+      // Update inventory quantities
+      setItems(prevItems => prevItems.map(invItem => {
+        const received = receivedItems.find(ri => ri.itemId === invItem.id);
+        if (received) {
+          return {
+            ...invItem,
+            quantity: invItem.quantity + received.quantity,
+            costPerUnit: received.cost,
+          };
+        }
+        return invItem;
+      }));
+      
+      // Create stock movements
+      const newMovements = receivedItems.map(received => {
+        const invItem = items.find(i => i.id === received.itemId);
+        const previousQuantity = invItem?.quantity || 0;
+        return {
+          id: `m${Date.now()}-${received.itemId}`,
+          itemId: received.itemId,
+          itemName: invItem?.name || received.itemId,
+          type: 'received' as StockMovementType,
+          quantity: received.quantity,
+          previousQuantity,
+          newQuantity: previousQuantity + received.quantity,
+          reason: `Received from PO ${o.id}`,
+          userId: 'u1',
+          userName: 'John Manager',
+          createdAt: today,
+        } as StockMovement;
+      });
+      
+      setMovements(prev => [...newMovements, ...prev]);
+      
+      // Add audit log entries
+      const newAuditEntries: AuditLogEntry[] = receivedItems.map(received => {
+        const invItem = items.find(i => i.id === received.itemId);
+        return {
+          id: `a${Date.now()}-${received.itemId}`,
+          action: 'UPDATE',
+          entityType: 'InventoryItem',
+          entityId: received.itemId,
+          previousValue: JSON.stringify({ quantity: invItem?.quantity || 0 }),
+          newValue: JSON.stringify({ quantity: (invItem?.quantity || 0) + received.quantity }),
+          userId: 'u1',
+          userName: 'John Manager',
+          createdAt: today,
+        };
+      });
+      
+      // Add PO status change audit log
+      newAuditEntries.push({
+        id: `a${Date.now()}-po`,
+        action: 'UPDATE',
+        entityType: 'PurchaseOrder',
+        entityId: o.id,
+        previousValue: JSON.stringify({ status: o.status }),
+        newValue: JSON.stringify({ status: newStatus }),
+        userId: 'u1',
+        userName: 'John Manager',
+        createdAt: today,
+      });
+      
+      setAuditLogs(prev => [...newAuditEntries, ...prev]);
+      
+      return {
+        ...o,
+        items: updatedItems,
+        status: newStatus,
+        receivedAt: allReceived ? today : o.receivedAt,
+      };
+    }));
+    
+    setReceiveItems([]);
+    setDeliveryNotes('');
+    setReceivedBy('');
+    setSelectedPO(null);
+    setShowReceiveModal(false);
+  }, [selectedPO, receiveItems, deliveryNotes, receivedBy, items]);
 
   const stats = useMemo(() => {
     const lowStockItems = items.filter(i => i.quantity <= i.reorderLevel);
@@ -765,7 +923,7 @@ export default function InventoryPage() {
             </div>
             <div className="flex gap-2 mt-3">
               <button className="btn btn-sm btn-secondary" onClick={() => openViewPOModal(po)}>View</button>
-              {po.status === 'sent' && <button className="btn btn-sm btn-primary">Receive Items</button>}
+              {po.status === 'sent' && <button className="btn btn-sm btn-primary" onClick={() => openReceiveModal(po)}>Receive Items</button>}
             </div>
           </div>
         ))}
@@ -1673,6 +1831,120 @@ export default function InventoryPage() {
           </div>
         </div>
       </div>
+
+      {/* Receive Items Modal */}
+      <div className={`modal-overlay ${showReceiveModal ? 'active' : ''}`} onClick={() => setShowReceiveModal(false)}>
+        <div className="modal" style={{ maxWidth: '1000px' }} onClick={e => e.stopPropagation()}>
+          <div className="modal-header">
+            <h2 className="modal-title">📦 Receive Order - {selectedPO?.id}</h2>
+            <button className="modal-close" onClick={() => setShowReceiveModal(false)}>×</button>
+          </div>
+          <div className="modal-body">
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '24px' }}>
+              <div>
+                <label className="form-label">Received By</label>
+                <input 
+                  type="text" 
+                  className="form-input"
+                  placeholder="Name of person receiving delivery"
+                  value={receivedBy} 
+                  onChange={e => setReceivedBy(e.target.value)} 
+                />
+              </div>
+              <div>
+                <label className="form-label">Delivery Notes</label>
+                <input 
+                  type="text" 
+                  className="form-input"
+                  placeholder="Condition, carrier info, etc."
+                  value={deliveryNotes} 
+                  onChange={e => setDeliveryNotes(e.target.value)} 
+                />
+              </div>
+            </div>
+
+            <div className="form-label">Received Items:</div>
+            <table className="data-table" style={{ marginTop: '12px', width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid #e5e7eb' }}>
+                  <th style={{ textAlign: 'left', padding: '12px 8px' }}>Item</th>
+                  <th style={{ textAlign: 'right', padding: '12px 8px' }}>Ordered</th>
+                  <th style={{ textAlign: 'right', padding: '12px 8px' }}>Remaining</th>
+                  <th style={{ textAlign: 'right', padding: '12px 8px' }}>Receive Qty</th>
+                  <th style={{ textAlign: 'right', padding: '12px 8px' }}>Actual Cost</th>
+                  <th style={{ padding: '12px 8px' }}>Batch #</th>
+                  <th style={{ padding: '12px 8px' }}>Expiry Date</th>
+                </tr>
+              </thead>
+              <tbody>
+                {receiveItems.map(item => {
+                  const orderItem = selectedPO?.items.find(i => i.itemId === item.itemId);
+                  const maxQty = orderItem ? orderItem.orderedQuantity - orderItem.receivedQuantity : 0;
+                  return (
+                    <tr key={item.itemId} style={{ borderBottom: '1px solid #f3f4f6' }}>
+                      <td style={{ padding: '12px 8px' }}>{orderItem?.itemName}</td>
+                      <td style={{ textAlign: 'right', padding: '12px 8px' }}>{orderItem?.orderedQuantity}</td>
+                      <td style={{ textAlign: 'right', padding: '12px 8px' }}>{maxQty}</td>
+                      <td style={{ textAlign: 'right', width: '100px', padding: '12px 8px' }}>
+                        <input 
+                          type="number" 
+                          className="form-input" 
+                          style={{ textAlign: 'right', margin: 0 }}
+                          min={0} 
+                          max={maxQty}
+                          value={item.quantity} 
+                          onChange={e => updateReceiveQuantity(item.itemId, parseInt(e.target.value) || 0)} 
+                        />
+                      </td>
+                      <td style={{ textAlign: 'right', width: '120px', padding: '12px 8px' }}>
+                        <input 
+                          type="number" 
+                          step="0.01"
+                          className="form-input" 
+                          style={{ textAlign: 'right', margin: 0 }}
+                          min={0}
+                          value={item.cost} 
+                          onChange={e => updateReceiveCost(item.itemId, parseFloat(e.target.value) || 0)} 
+                        />
+                      </td>
+                      <td style={{ width: '130px', padding: '12px 8px' }}>
+                        <input 
+                          type="text" 
+                          className="form-input"
+                          placeholder="Batch"
+                          style={{ margin: 0 }}
+                          value={item.batchNumber} 
+                          onChange={e => updateReceiveBatch(item.itemId, e.target.value)} 
+                        />
+                      </td>
+                      <td style={{ width: '140px', padding: '12px 8px' }}>
+                        <input 
+                          type="date" 
+                          className="form-input"
+                          style={{ margin: 0 }}
+                          value={item.expiryDate} 
+                          onChange={e => updateReceiveExpiry(item.itemId, e.target.value)} 
+                        />
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+
+            <div style={{ marginTop: '16px', padding: '12px', backgroundColor: 'var(--bg-subtle)', borderRadius: '8px', fontSize: '13px', color: 'var(--text-secondary)' }}>
+              💡 <strong>Tip:</strong> You may receive partial quantities. Any remaining items will stay on this order for future receipt.
+            </div>
+          </div>
+          <div className="modal-footer">
+            <button className="btn btn-secondary" onClick={() => setShowReceiveModal(false)}>Cancel</button>
+            <button className="btn btn-primary" onClick={submitReceive} disabled={receiveItems.every(i => i.quantity === 0)} style={{ backgroundColor: '#10b981', borderColor: '#10b981' }}>
+              ✓ Receive Items
+            </button>
+          </div>
+        </div>
+      </div>
+
     </div>
   );
 }
