@@ -1,11 +1,51 @@
 'use client';
 
-import { useState, useMemo, useCallback } from 'react';
-import { inventoryItems as initialInventory } from '@/lib/mockData';
-import { InventoryItem } from '@/types';
+import { useState, useMemo, useCallback, useEffect } from 'react';
+import { inventoryItems as initialInventory, menuItemRecipes, orders as initialOrders } from '@/lib/mockData';
+import { InventoryItem, Order } from '@/types';
+
+// Extended InventoryItem with batch and expiry tracking
+interface InventoryItemWithBatch extends InventoryItem {
+  expiryDate?: string;
+  batchNumber?: string;
+  receivedDate?: string;
+  lowStockThreshold?: number;
+}
+
+interface InventoryCountLog {
+  id: string;
+  itemId: string;
+  itemName: string;
+  countedQuantity: number;
+  systemQuantity: number;
+  variance: number;
+  variancePercent: number;
+  status: 'pending' | 'approved' | 'rejected';
+  countedBy: string;
+  countedAt: string;
+  notes?: string;
+}
+
+interface LowStockAlert {
+  id: string;
+  itemId: string;
+  itemName: string;
+  currentQuantity: number;
+  threshold: number;
+  createdAt: string;
+  acknowledged: boolean;
+}
 
 function formatCurrency(value: number): string {
   return `$${value.toFixed(2)}`;
+}
+
+function daysUntilDate(dateStr: string): number {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const targetDate = new Date(dateStr);
+  targetDate.setHours(0, 0, 0, 0);
+  return Math.ceil((targetDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
 }
 
 interface PurchaseOrder {
@@ -22,7 +62,7 @@ interface StockMovement {
   id: string;
   itemId: string;
   itemName: string;
-  type: 'received' | 'used' | 'adjustment' | 'waste' | 'transfer';
+  type: 'received' | 'used' | 'adjustment' | 'waste' | 'transfer' | 'order_consumption';
   quantity: number;
   previousQty: number;
   newQty: number;
@@ -32,18 +72,27 @@ interface StockMovement {
 }
 
 export default function InventoryPage() {
-  const [items, setItems] = useState<InventoryItem[]>(initialInventory);
-  const [view, setView] = useState<'list' | 'low-stock' | 'valuation' | 'orders' | 'movements'>('list');
+  const [items, setItems] = useState<InventoryItemWithBatch[]>(initialInventory.map(item => ({
+    ...item,
+    lowStockThreshold: item.reorderLevel,
+    receivedDate: new Date(Date.now() - Math.random() * 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+    expiryDate: new Date(Date.now() + (7 + Math.random() * 60) * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+    batchNumber: `BATCH-${String(Math.floor(Math.random() * 1000)).padStart(4, '0')}`
+  })));
+  
+  const [orders, setOrders] = useState<Order[]>(initialOrders);
+  const [view, setView] = useState<'list' | 'low-stock' | 'valuation' | 'orders' | 'movements' | 'counts' | 'alerts'>('list');
   const [searchTerm, setSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [showModal, setShowModal] = useState(false);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [showOrderModal, setShowOrderModal] = useState(false);
   const [showMovementModal, setShowMovementModal] = useState(false);
-  const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null);
-  const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
+  const [showCountModal, setShowCountModal] = useState(false);
+  const [selectedItem, setSelectedItem] = useState<InventoryItemWithBatch | null>(null);
+  const [editingItem, setEditingItem] = useState<InventoryItemWithBatch | null>(null);
   const [selectedItems, setSelectedItems] = useState<string[]>([]);
-  const [sortBy, setSortBy] = useState<'name' | 'quantity' | 'cost'>('name');
+  const [sortBy, setSortBy] = useState<'name' | 'quantity' | 'cost' | 'expiry'>('name');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
 
   // Purchase orders state
@@ -80,6 +129,19 @@ export default function InventoryPage() {
   const [restockSupplier, setRestockSupplier] = useState('');
   const [restockNotes, setRestockNotes] = useState('');
 
+  // Inventory count state
+  const [countLogs, setCountLogs] = useState<InventoryCountLog[]>([]);
+  const [countForm, setCountForm] = useState({
+    itemId: '',
+    countedQuantity: '',
+    notes: '',
+    countedBy: 'System'
+  });
+
+  // Low stock alerts state
+  const [alerts, setAlerts] = useState<LowStockAlert[]>([]);
+  const [showAlertsBanner, setShowAlertsBanner] = useState(true);
+
   const suppliers = ['Fresh Foods Co', 'Ocean Catch', 'Prime Meats', 'Green Valley Farms', 'Beverage Distributors'];
 
   const [formData, setFormData] = useState({
@@ -89,12 +151,86 @@ export default function InventoryPage() {
     unit: 'pieces',
     reorderLevel: '',
     costPerUnit: '',
-    salePrice: ''
+    salePrice: '',
+    expiryDate: '',
+    batchNumber: '',
+    receivedDate: ''
   });
 
-  const getStockStatus = useCallback((item: InventoryItem) => {
+  // Automatic recipe-based stock deduction when orders are completed
+  const processOrderStockDeduction = useCallback((order: Order) => {
+    if (order.status !== 'completed') return;
+
+    order.items.forEach(orderItem => {
+      const recipe = menuItemRecipes.find(r => r.menuItemId === orderItem.menuItemId);
+      if (!recipe) return;
+
+      recipe.ingredients.forEach(ingredient => {
+        const item = items.find(i => i.id === ingredient.inventoryItemId);
+        if (!item) return;
+
+        const deductionAmount = ingredient.quantity * orderItem.quantity;
+        const previousQty = item.quantity;
+        const newQty = Math.max(0, previousQty - deductionAmount);
+
+        // Update inventory item
+        setItems(prevItems => prevItems.map(i => 
+          i.id === ingredient.inventoryItemId 
+            ? { ...i, quantity: newQty }
+            : i
+        ));
+
+        // Record stock movement
+        setStockMovements(prev => [{
+          id: `SM-${String(prev.length + 1).padStart(3, '0')}`,
+          itemId: item.id,
+          itemName: item.name,
+          type: 'order_consumption',
+          quantity: -deductionAmount,
+          previousQty,
+          newQty,
+          date: new Date().toISOString().split('T')[0],
+          notes: `Order ${order.id} - ${orderItem.name} x${orderItem.quantity}`,
+          reference: order.id
+        }, ...prev]);
+      });
+    });
+  }, [items]);
+
+  // Check for low stock and generate alerts
+  useEffect(() => {
+    const newAlerts: LowStockAlert[] = [];
+    items.forEach(item => {
+      const threshold = item.lowStockThreshold || item.reorderLevel;
+      if (item.quantity <= threshold && !alerts.some(a => a.itemId === item.id && !a.acknowledged)) {
+        newAlerts.push({
+          id: `ALERT-${Date.now()}-${item.id}`,
+          itemId: item.id,
+          itemName: item.name,
+          currentQuantity: item.quantity,
+          threshold,
+          createdAt: new Date().toISOString(),
+          acknowledged: false
+        });
+      }
+    });
+    if (newAlerts.length > 0) {
+      setAlerts(prev => [...newAlerts, ...prev]);
+    }
+  }, [items]);
+
+  const getStockStatus = useCallback((item: InventoryItemWithBatch) => {
     if (item.quantity === 0) return 'out-of-stock';
-    if (item.quantity <= item.reorderLevel) return 'low-stock';
+    if (item.quantity <= (item.lowStockThreshold || item.reorderLevel)) return 'low-stock';
+    return 'ok';
+  }, []);
+
+  const getExpiryStatus = useCallback((item: InventoryItemWithBatch) => {
+    if (!item.expiryDate) return null;
+    const days = daysUntilDate(item.expiryDate);
+    if (days < 0) return 'expired';
+    if (days <= 3) return 'critical';
+    if (days <= 7) return 'warning';
     return 'ok';
   }, []);
 
@@ -114,30 +250,39 @@ export default function InventoryPage() {
         if (sortBy === 'name') comparison = a.name.localeCompare(b.name);
         else if (sortBy === 'quantity') comparison = a.quantity - b.quantity;
         else if (sortBy === 'cost') comparison = a.costPerUnit - b.costPerUnit;
+        else if (sortBy === 'expiry') {
+          if (!a.expiryDate) return 1;
+          if (!b.expiryDate) return -1;
+          comparison = new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime();
+        }
         return sortOrder === 'asc' ? comparison : -comparison;
       }),
   [items, searchTerm, categoryFilter, view, sortBy, sortOrder, getStockStatus]);
 
   const lowStockItems = useMemo(() => items.filter(i => getStockStatus(i) !== 'ok'), [items, getStockStatus]);
+  const expiringItems = useMemo(() => items.filter(i => {
+    const status = getExpiryStatus(i);
+    return status === 'critical' || status === 'warning' || status === 'expired';
+  }), [items, getExpiryStatus]);
+  
+  const activeAlerts = useMemo(() => alerts.filter(a => !a.acknowledged), [alerts]);
   const totalValue = useMemo(() => items.reduce((sum, i) => sum + (i.quantity * i.costPerUnit), 0), [items]);
   const categoryValues = useMemo(() => items.reduce((acc, i) => {
     acc[i.category] = (acc[i.category] || 0) + (i.quantity * i.costPerUnit);
     return acc;
   }, {} as Record<string, number>), [items]);
 
-  const usageHistory = useMemo(() => [
-    { date: '2024-04-20', action: 'Used', quantity: 2, notes: 'Daily prep' },
-    { date: '2024-04-19', action: 'Restocked', quantity: 10, notes: 'Weekly delivery' },
-    { date: '2024-04-18', action: 'Used', quantity: 5, notes: 'Weekend rush' },
-  ], []);
-
   const openAddModal = useCallback(() => {
     setEditingItem(null);
-    setFormData({ name: '', category: 'Ingredients', quantity: '', unit: 'pieces', reorderLevel: '', costPerUnit: '', salePrice: '' });
+    setFormData({ 
+      name: '', category: 'Ingredients', quantity: '', unit: 'pieces', reorderLevel: '', 
+      costPerUnit: '', salePrice: '', expiryDate: '', batchNumber: '', 
+      receivedDate: new Date().toISOString().split('T')[0] 
+    });
     setShowModal(true);
   }, []);
 
-  const openEditModal = useCallback((item: InventoryItem) => {
+  const openEditModal = useCallback((item: InventoryItemWithBatch) => {
     setEditingItem(item);
     setFormData({
       name: item.name,
@@ -146,14 +291,27 @@ export default function InventoryPage() {
       unit: item.unit,
       reorderLevel: item.reorderLevel.toString(),
       costPerUnit: item.costPerUnit.toString(),
-      salePrice: item.salePrice?.toString() || ''
+      salePrice: item.salePrice?.toString() || '',
+      expiryDate: item.expiryDate || '',
+      batchNumber: item.batchNumber || '',
+      receivedDate: item.receivedDate || ''
     });
     setShowModal(true);
   }, []);
 
-  const openHistoryModal = useCallback((item: InventoryItem) => {
+  const openHistoryModal = useCallback((item: InventoryItemWithBatch) => {
     setSelectedItem(item);
     setShowHistoryModal(true);
+  }, []);
+
+  const openCountModal = useCallback((item?: InventoryItemWithBatch) => {
+    setCountForm({
+      itemId: item?.id || '',
+      countedQuantity: '',
+      notes: '',
+      countedBy: 'System'
+    });
+    setShowCountModal(true);
   }, []);
 
   const saveItem = useCallback(() => {
@@ -167,20 +325,28 @@ export default function InventoryPage() {
         quantity: parseFloat(formData.quantity),
         unit: formData.unit,
         reorderLevel: parseFloat(formData.reorderLevel) || 0,
+        lowStockThreshold: parseFloat(formData.reorderLevel) || 0,
         costPerUnit: parseFloat(formData.costPerUnit) || 0,
-        salePrice: formData.salePrice ? parseFloat(formData.salePrice) : undefined
+        salePrice: formData.salePrice ? parseFloat(formData.salePrice) : undefined,
+        expiryDate: formData.expiryDate || undefined,
+        batchNumber: formData.batchNumber || undefined,
+        receivedDate: formData.receivedDate || undefined
       } : i));
     } else {
       setItems(prevItems => {
-        const newItem: InventoryItem = {
+        const newItem: InventoryItemWithBatch = {
           id: String(prevItems.length + 1),
           name: formData.name,
           category: formData.category,
           quantity: parseFloat(formData.quantity),
           unit: formData.unit,
           reorderLevel: parseFloat(formData.reorderLevel) || 0,
+          lowStockThreshold: parseFloat(formData.reorderLevel) || 0,
           costPerUnit: parseFloat(formData.costPerUnit) || 0,
-          salePrice: formData.salePrice ? parseFloat(formData.salePrice) : undefined
+          salePrice: formData.salePrice ? parseFloat(formData.salePrice) : undefined,
+          expiryDate: formData.expiryDate || undefined,
+          batchNumber: formData.batchNumber || undefined,
+          receivedDate: formData.receivedDate || undefined
         };
         return [...prevItems, newItem];
       });
@@ -220,8 +386,11 @@ export default function InventoryPage() {
   }, [selectedItems]);
 
   const exportInventory = useCallback(() => {
-    const headers = ['Name', 'Category', 'Quantity', 'Unit', 'Reorder Level', 'Cost/Unit', 'Total Value'];
-    const rows = items.map(i => [i.name, i.category, i.quantity, i.unit, i.reorderLevel, i.costPerUnit, i.quantity * i.costPerUnit]);
+    const headers = ['Name', 'Category', 'Quantity', 'Unit', 'Reorder Level', 'Cost/Unit', 'Total Value', 'Batch', 'Expiry Date', 'Received Date'];
+    const rows = items.map(i => [
+      i.name, i.category, i.quantity, i.unit, i.reorderLevel, i.costPerUnit, 
+      i.quantity * i.costPerUnit, i.batchNumber || '', i.expiryDate || '', i.receivedDate || ''
+    ]);
     const csv = [headers, ...rows].map(row => row.join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
@@ -231,6 +400,77 @@ export default function InventoryPage() {
     a.click();
     URL.revokeObjectURL(url);
   }, [items]);
+
+  // Inventory count functions
+  const submitInventoryCount = useCallback(() => {
+    const item = items.find(i => i.id === countForm.itemId);
+    if (!item || !countForm.countedQuantity) return;
+
+    const countedQty = parseFloat(countForm.countedQuantity);
+    const systemQty = item.quantity;
+    const variance = countedQty - systemQty;
+    const variancePercent = systemQty > 0 ? Math.abs((variance / systemQty) * 100) : 0;
+
+    const newLog: InventoryCountLog = {
+      id: `COUNT-${String(countLogs.length + 1).padStart(4, '0')}`,
+      itemId: item.id,
+      itemName: item.name,
+      countedQuantity: countedQty,
+      systemQuantity: systemQty,
+      variance,
+      variancePercent,
+      status: variance === 0 ? 'approved' : 'pending',
+      countedBy: countForm.countedBy,
+      countedAt: new Date().toISOString(),
+      notes: countForm.notes
+    };
+
+    setCountLogs(prev => [newLog, ...prev]);
+    setShowCountModal(false);
+  }, [items, countForm, countLogs]);
+
+  const approveCountAdjustment = useCallback((logId: string) => {
+    const log = countLogs.find(l => l.id === logId);
+    if (!log) return;
+
+    setItems(prevItems => prevItems.map(i => 
+      i.id === log.itemId ? { ...i, quantity: log.countedQuantity } : i
+    ));
+
+    setCountLogs(prev => prev.map(l => 
+      l.id === logId ? { ...l, status: 'approved' } : l
+    ));
+
+    // Record adjustment movement
+    const item = items.find(i => i.id === log.itemId);
+    if (item) {
+      setStockMovements(prev => [{
+        id: `SM-${String(prev.length + 1).padStart(3, '0')}`,
+        itemId: item.id,
+        itemName: item.name,
+        type: 'adjustment',
+        quantity: log.variance,
+        previousQty: log.systemQuantity,
+        newQty: log.countedQuantity,
+        date: new Date().toISOString().split('T')[0],
+        notes: `Inventory count adjustment - ${log.notes || 'No notes'}`,
+        reference: log.id
+      }, ...prev]);
+    }
+  }, [countLogs, items]);
+
+  const rejectCountAdjustment = useCallback((logId: string) => {
+    setCountLogs(prev => prev.map(l => 
+      l.id === logId ? { ...l, status: 'rejected' } : l
+    ));
+  }, []);
+
+  // Alert functions
+  const acknowledgeAlert = useCallback((alertId: string) => {
+    setAlerts(prev => prev.map(a => 
+      a.id === alertId ? { ...a, acknowledged: true } : a
+    ));
+  }, []);
 
   // Restock functions
   const openRestockModal = useCallback(() => {
@@ -393,12 +633,55 @@ export default function InventoryPage() {
       case 'adjustment': return 'badge-pending';
       case 'waste': return 'badge-cancelled';
       case 'transfer': return 'badge-warning';
+      case 'order_consumption': return 'badge-in_progress';
       default: return '';
     }
   }, []);
 
+  const getExpiryBadge = useCallback((item: InventoryItemWithBatch) => {
+    const status = getExpiryStatus(item);
+    if (!status || status === 'ok') return null;
+    
+    const days = item.expiryDate ? daysUntilDate(item.expiryDate) : 0;
+    
+    if (status === 'expired') {
+      return <span className="badge badge-cancelled">Expired</span>;
+    }
+    if (status === 'critical') {
+      return <span className="badge badge-cancelled">{days}d left</span>;
+    }
+    if (status === 'warning') {
+      return <span className="badge badge-pending">{days}d left</span>;
+    }
+    return null;
+  }, [getExpiryStatus]);
+
   return (
     <>
+      {/* Active Alerts Banner */}
+      {showAlertsBanner && activeAlerts.length > 0 && (
+        <div style={{ 
+          background: 'var(--warning-bg)', 
+          padding: '12px 16px', 
+          borderRadius: '8px', 
+          marginBottom: '16px',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center'
+        }}>
+          <div>
+            <strong>⚠️ {activeAlerts.length} active alerts:</strong> {lowStockItems.length} low stock items, {expiringItems.filter(i => getExpiryStatus(i) === 'expired').length} expired items
+          </div>
+          <button 
+            className="btn btn-secondary" 
+            style={{ padding: '4px 12px' }}
+            onClick={() => { setView('alerts'); setShowAlertsBanner(false); }}
+          >
+            View Alerts
+          </button>
+        </div>
+      )}
+
       <div className="page-header">
         <h1 className="page-title">Inventory</h1>
         <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
@@ -407,8 +690,16 @@ export default function InventoryPage() {
               {lowStockItems.length} items low on stock
             </span>
           )}
+          {expiringItems.some(i => getExpiryStatus(i) === 'expired') && (
+            <span className="badge badge-cancelled" style={{ fontSize: '14px' }}>
+              {expiringItems.filter(i => getExpiryStatus(i) === 'expired').length} expired items
+            </span>
+          )}
            <button className="btn btn-primary" onClick={openAddModal}>
              + Add Item
+           </button>
+           <button className="btn btn-secondary" onClick={() => openCountModal()}>
+             New Count
            </button>
         </div>
       </div>
@@ -417,6 +708,12 @@ export default function InventoryPage() {
         <button className={`tab ${view === 'list' ? 'active' : ''}`} onClick={() => setView('list')}>All Items</button>
         <button className={`tab ${view === 'low-stock' ? 'active' : ''}`} onClick={() => setView('low-stock')}>
           Low Stock {lowStockItems.length > 0 && `(${lowStockItems.length})`}
+        </button>
+        <button className={`tab ${view === 'alerts' ? 'active' : ''}`} onClick={() => setView('alerts')}>
+          Alerts {activeAlerts.length > 0 && `(${activeAlerts.length})`}
+        </button>
+        <button className={`tab ${view === 'counts' ? 'active' : ''}`} onClick={() => setView('counts')}>
+          Counts {countLogs.filter(l => l.status === 'pending').length > 0 && `(${countLogs.filter(l => l.status === 'pending').length})`}
         </button>
         <button className={`tab ${view === 'orders' ? 'active' : ''}`} onClick={() => setView('orders')}>
           Orders {purchaseOrders.filter(o => o.status === 'pending' || o.status === 'ordered').length > 0 && `(${purchaseOrders.filter(o => o.status === 'pending' || o.status === 'ordered').length})`}
@@ -443,13 +740,17 @@ export default function InventoryPage() {
               <option value="Supplies">Supplies</option>
               <option value="Beverages">Beverages</option>
             </select>
-            <select className="form-select" style={{ width: '150px' }} value={sortBy} onChange={e => setSortBy(e.target.value as 'name' | 'quantity' | 'cost')}>
+            <select className="form-select" style={{ width: '150px' }} value={sortBy} onChange={e => setSortBy(e.target.value as 'name' | 'quantity' | 'cost' | 'expiry')}>
               <option value="name">Sort by Name</option>
               <option value="quantity">Sort by Quantity</option>
               <option value="cost">Sort by Cost</option>
+              <option value="expiry">Sort by Expiry</option>
             </select>
             <button className="btn btn-secondary" onClick={() => setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}>
               {sortOrder === 'asc' ? '↑' : '↓'}
+            </button>
+            <button className="btn btn-secondary" onClick={exportInventory}>
+              Export CSV
             </button>
             {selectedItems.length > 0 && (
               <button className="btn btn-secondary" style={{ color: 'var(--danger)' }} onClick={deleteSelectedItems}>
@@ -469,6 +770,8 @@ export default function InventoryPage() {
                   <th>Category</th>
                   <th>Quantity</th>
                   <th>Unit</th>
+                  <th>Batch</th>
+                  <th>Expiry</th>
                   <th>Reorder Level</th>
                   <th>Cost/Unit</th>
                   <th>Total Value</th>
@@ -479,6 +782,7 @@ export default function InventoryPage() {
               <tbody>
                 {filteredItems.map(item => {
                   const stockStatus = getStockStatus(item);
+                  const expiryStatus = getExpiryStatus(item);
                   return (
                     <tr key={item.id}>
                       <td>
@@ -490,22 +794,33 @@ export default function InventoryPage() {
                         {item.quantity}
                       </td>
                       <td>{item.unit}</td>
+                      <td className="mono">{item.batchNumber || '-'}</td>
+                      <td>
+                        {item.expiryDate && (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                            <span className="mono">{item.expiryDate}</span>
+                            {getExpiryBadge(item)}
+                          </div>
+                        )}
+                      </td>
                       <td>{item.reorderLevel}</td>
                       <td className="mono">{formatCurrency(item.costPerUnit)}</td>
                       <td className="mono">{formatCurrency(item.quantity * item.costPerUnit)}</td>
                       <td>
-                        <span className={`badge ${
-                          stockStatus === 'out-of-stock' ? 'badge-cancelled' :
-                          stockStatus === 'low-stock' ? 'badge-pending' :
-                          'badge-available'
-                        }`}>
-                          {stockStatus === 'out-of-stock' ? 'Out of Stock' : stockStatus === 'low-stock' ? 'Low Stock' : 'In Stock'}
-                        </span>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                          <span className={`badge ${
+                            stockStatus === 'out-of-stock' ? 'badge-cancelled' :
+                            stockStatus === 'low-stock' ? 'badge-pending' :
+                            'badge-available'
+                          }`}>
+                            {stockStatus === 'out-of-stock' ? 'Out of Stock' : stockStatus === 'low-stock' ? 'Low Stock' : 'In Stock'}
+                          </span>
+                        </div>
                       </td>
                       <td>
                         <button className="action-btn edit" onClick={() => openEditModal(item)}>Edit</button>
-                        <button className="action-btn" style={{ marginLeft: '8px' }} onClick={() => adjustQuantity(item.id, item.reorderLevel)}>
-                          + Add
+                        <button className="action-btn" style={{ marginLeft: '8px' }} onClick={() => openCountModal(item)}>
+                          Count
                         </button>
                         <button className="action-btn" style={{ marginLeft: '8px' }} onClick={() => openHistoryModal(item)}>
                           History
@@ -518,7 +833,7 @@ export default function InventoryPage() {
                   );
                 })}
               </tbody>
-</table>
+            </table>
             {filteredItems.length === 0 && (
               <div className="empty-state">
                 <div className="empty-state-text">No items found</div>
@@ -526,6 +841,120 @@ export default function InventoryPage() {
             )}
           </div>
         </>
+      )}
+
+      {view === 'alerts' && (
+        <div className="data-card">
+          <div className="data-card-header">
+            <h3 className="data-card-title">Active Alerts</h3>
+          </div>
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Item</th>
+                <th>Current Quantity</th>
+                <th>Threshold</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {alerts.map(alert => {
+                const item = items.find(i => i.id === alert.itemId);
+                return (
+                  <tr key={alert.id} style={{ opacity: alert.acknowledged ? 0.5 : 1 }}>
+                    <td className="mono">{new Date(alert.createdAt).toLocaleDateString()}</td>
+                    <td>{alert.itemName}</td>
+                    <td className="mono">{alert.currentQuantity} {item?.unit}</td>
+                    <td className="mono">{alert.threshold} {item?.unit}</td>
+                    <td>
+                      <span className={`badge ${alert.acknowledged ? 'badge-available' : 'badge-pending'}`}>
+                        {alert.acknowledged ? 'Acknowledged' : 'Active'}
+                      </span>
+                    </td>
+                    <td>
+                      {!alert.acknowledged && (
+                        <button className="btn btn-secondary" onClick={() => acknowledgeAlert(alert.id)}>
+                          Acknowledge
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          {alerts.length === 0 && (
+            <div className="empty-state">
+              <div className="empty-state-text">No alerts</div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {view === 'counts' && (
+        <div className="data-card">
+          <div className="data-card-header">
+            <h3 className="data-card-title">Inventory Count History</h3>
+          </div>
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Item</th>
+                <th>System Qty</th>
+                <th>Counted Qty</th>
+                <th>Variance</th>
+                <th>Variance %</th>
+                <th>Status</th>
+                <th>Counted By</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {countLogs.map(log => (
+                <tr key={log.id}>
+                  <td className="mono">{new Date(log.countedAt).toLocaleDateString()}</td>
+                  <td>{log.itemName}</td>
+                  <td className="mono">{log.systemQuantity}</td>
+                  <td className="mono">{log.countedQuantity}</td>
+                  <td className="mono" style={{ color: log.variance >= 0 ? 'var(--success)' : 'var(--danger)' }}>
+                    {log.variance >= 0 ? '+' : ''}{log.variance.toFixed(2)}
+                  </td>
+                  <td className="mono">{log.variancePercent.toFixed(1)}%</td>
+                  <td>
+                    <span className={`badge ${
+                      log.status === 'approved' ? 'badge-available' :
+                      log.status === 'rejected' ? 'badge-cancelled' :
+                      'badge-pending'
+                    }`}>
+                      {log.status}
+                    </span>
+                  </td>
+                  <td>{log.countedBy}</td>
+                  <td>
+                    {log.status === 'pending' && (
+                      <>
+                        <button className="btn btn-primary" onClick={() => approveCountAdjustment(log.id)}>
+                          Approve
+                        </button>
+                        <button className="btn btn-secondary" style={{ marginLeft: '8px', color: 'var(--danger)' }} onClick={() => rejectCountAdjustment(log.id)}>
+                          Reject
+                        </button>
+                      </>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {countLogs.length === 0 && (
+            <div className="empty-state">
+              <div className="empty-state-text">No inventory counts recorded</div>
+            </div>
+          )}
+        </div>
       )}
 
       {view === 'orders' && (
@@ -555,6 +984,9 @@ export default function InventoryPage() {
               <option value="received">Received</option>
               <option value="cancelled">Cancelled</option>
             </select>
+            <button className="btn btn-primary" onClick={openRestockModal}>
+              Create Restock Order
+            </button>
           </div>
 
           <div className="data-card">
@@ -739,6 +1171,7 @@ export default function InventoryPage() {
               <option value="adjustment">Adjustment</option>
               <option value="waste">Waste</option>
               <option value="transfer">Transfer</option>
+              <option value="order_consumption">Order Consumption</option>
             </select>
             <select className="form-select" style={{ width: '180px' }} value={movementItemFilter} onChange={e => setMovementItemFilter(e.target.value)}>
               <option value="all">All Items</option>
@@ -776,14 +1209,14 @@ export default function InventoryPage() {
                     <td>{movement.itemName}</td>
                     <td>
                       <span className={`badge ${getMovementTypeColor(movement.type)}`}>
-                        {movement.type}
+                        {movement.type === 'order_consumption' ? 'Order Use' : movement.type}
                       </span>
                     </td>
                     <td className="mono" style={{ color: movement.quantity >= 0 ? 'var(--success)' : 'var(--danger)' }}>
-                      {movement.quantity >= 0 ? '+' : ''}{movement.quantity}
+                      {movement.quantity >= 0 ? '+' : ''}{movement.quantity.toFixed(2)}
                     </td>
-                    <td className="mono">{movement.previousQty}</td>
-                    <td className="mono">{movement.newQty}</td>
+                    <td className="mono">{movement.previousQty.toFixed(2)}</td>
+                    <td className="mono">{movement.newQty.toFixed(2)}</td>
                     <td>{movement.reference || '-'}</td>
                     <td style={{ maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {movement.notes || '-'}
@@ -837,20 +1270,36 @@ export default function InventoryPage() {
             <div className="grid-2">
               <div className="form-group">
                 <label className="form-label">Quantity</label>
-                <input className="form-input" type="number" value={formData.quantity} onChange={e => setFormData({ ...formData, quantity: e.target.value })} placeholder="0" />
+                <input className="form-input" type="number" step="0.01" value={formData.quantity} onChange={e => setFormData({ ...formData, quantity: e.target.value })} placeholder="0" />
               </div>
               <div className="form-group">
                 <label className="form-label">Reorder Level</label>
-                <input className="form-input" type="number" value={formData.reorderLevel} onChange={e => setFormData({ ...formData, reorderLevel: e.target.value })} placeholder="0" />
+                <input className="form-input" type="number" step="0.01" value={formData.reorderLevel} onChange={e => setFormData({ ...formData, reorderLevel: e.target.value })} placeholder="0" />
+              </div>
+            </div>
+            <div className="grid-2">
+              <div className="form-group">
+                <label className="form-label">Cost per Unit</label>
+                <input className="form-input" type="number" step="0.01" value={formData.costPerUnit} onChange={e => setFormData({ ...formData, costPerUnit: e.target.value })} placeholder="0.00" />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Sale Price (Optional)</label>
+                <input className="form-input" type="number" step="0.01" value={formData.salePrice || ''} onChange={e => setFormData({ ...formData, salePrice: e.target.value })} placeholder="0.00" />
+              </div>
+            </div>
+            <div className="grid-2">
+              <div className="form-group">
+                <label className="form-label">Batch Number</label>
+                <input className="form-input" value={formData.batchNumber} onChange={e => setFormData({ ...formData, batchNumber: e.target.value })} placeholder="Batch number" />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Received Date</label>
+                <input className="form-input" type="date" value={formData.receivedDate} onChange={e => setFormData({ ...formData, receivedDate: e.target.value })} />
               </div>
             </div>
             <div className="form-group">
-              <label className="form-label">Cost per Unit</label>
-              <input className="form-input" type="number" step="0.01" value={formData.costPerUnit} onChange={e => setFormData({ ...formData, costPerUnit: e.target.value })} placeholder="0.00" />
-            </div>
-            <div className="form-group">
-              <label className="form-label">Sale Price (Optional)</label>
-              <input className="form-input" type="number" step="0.01" value={formData.salePrice || ''} onChange={e => setFormData({ ...formData, salePrice: e.target.value })} placeholder="0.00" />
+              <label className="form-label">Expiry Date</label>
+              <input className="form-input" type="date" value={formData.expiryDate} onChange={e => setFormData({ ...formData, expiryDate: e.target.value })} />
             </div>
           </div>
           <div className="modal-footer">
@@ -874,6 +1323,7 @@ export default function InventoryPage() {
                   <th style={{ fontSize: '20px', color: '#888', fontWeight: '500', padding: '16px' }}>Date</th>
                   <th style={{ fontSize: '20px', color: '#888', fontWeight: '500', padding: '16px' }}>Action</th>
                   <th style={{ fontSize: '20px', color: '#888', fontWeight: '500', padding: '16px' }}>Quantity</th>
+                  <th style={{ fontSize: '20px', color: '#888', fontWeight: '500', padding: '16px' }}>Reference</th>
                   <th style={{ fontSize: '20px', color: '#888', fontWeight: '500', padding: '16px' }}>Notes</th>
                 </tr>
               </thead>
@@ -894,10 +1344,14 @@ export default function InventoryPage() {
                         backgroundColor: movement.type === 'received' ? '#166534' : '#1e3a5f',
                         color: movement.type === 'received' ? '#4ade80' : '#93c5fd'
                       }}>
-                        {movement.type === 'received' ? 'Restocked' : movement.type === 'used' ? 'Used' : movement.type}
+                        {movement.type === 'received' ? 'Restocked' : 
+                         movement.type === 'used' ? 'Used' : 
+                         movement.type === 'order_consumption' ? 'Order Use' :
+                         movement.type}
                       </span>
                     </td>
                     <td style={{ fontSize: '32px', fontWeight: '500', padding: '24px 16px' }} className="mono">{Math.abs(movement.quantity)}</td>
+                    <td style={{ fontSize: '24px', padding: '24px 16px' }}>{movement.reference || '-'}</td>
                     <td style={{ fontSize: '24px', padding: '24px 16px' }}>{movement.notes || '-'}</td>
                   </tr>
                 ))}
@@ -985,7 +1439,7 @@ export default function InventoryPage() {
               </table>
               {restockItems.length === 0 && (
                 <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>
-                  No items added. Click &quot;Add Item&quot; to add items.
+                  No items added. Click \"Add Item\" to add items.
                 </div>
               )}
             </div>
@@ -1034,7 +1488,8 @@ export default function InventoryPage() {
                 <label className="form-label">Quantity</label>
                 <input 
                   className="form-input" 
-                  type="number" 
+                  type="number"
+                  step="0.01" 
                   value={movementForm.quantity} 
                   onChange={e => setMovementForm({ ...movementForm, quantity: e.target.value })} 
                   placeholder={movementForm.type === 'received' ? 'Amount received' : 'Amount used/wasted'}
@@ -1043,7 +1498,7 @@ export default function InventoryPage() {
             </div>
             <div className="form-group">
               <label className="form-label">Reference (Optional)</label>
-              <input className="form-input" value={movementForm.reference} onChange={e => setMovementForm({ ...movementForm, reference: e.target.value })} placeholder="e.g., PO-001" />
+              <input className="form-input" value={movementForm.reference} onChange={e => setMovementForm({ ...movementForm, reference: e.target.value })} placeholder="e.g., PO-001, ORD-001" />
             </div>
             <div className="form-group">
               <label className="form-label">Notes</label>
@@ -1053,6 +1508,82 @@ export default function InventoryPage() {
           <div className="modal-footer">
             <button className="btn btn-secondary" onClick={() => setShowMovementModal(false)}>Cancel</button>
             <button className="btn btn-primary" onClick={saveMovement}>Record Movement</button>
+          </div>
+        </div>
+      </div>
+
+      {/* Inventory Count Modal */}
+      <div className={`modal-overlay ${showCountModal ? 'active' : ''}`} onClick={() => setShowCountModal(false)}>
+        <div className="modal" onClick={e => e.stopPropagation()}>
+          <div className="modal-header">
+            <h2 className="modal-title">Record Inventory Count</h2>
+            <button className="modal-close" onClick={() => setShowCountModal(false)}>×</button>
+          </div>
+          <div className="modal-body">
+            <div className="form-group">
+              <label className="form-label">Item</label>
+              <select className="form-select" value={countForm.itemId} onChange={e => setCountForm({ ...countForm, itemId: e.target.value })}>
+                <option value="">Select item...</option>
+                {items.map(i => (
+                  <option key={i.id} value={i.id}>{i.name} (System: {i.quantity} {i.unit})</option>
+                ))}
+              </select>
+            </div>
+            <div className="grid-2">
+              <div className="form-group">
+                <label className="form-label">Counted Quantity</label>
+                <input 
+                  className="form-input" 
+                  type="number"
+                  step="0.01" 
+                  value={countForm.countedQuantity} 
+                  onChange={e => setCountForm({ ...countForm, countedQuantity: e.target.value })} 
+                  placeholder="Physical count"
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Counted By</label>
+                <input 
+                  className="form-input" 
+                  value={countForm.countedBy} 
+                  onChange={e => setCountForm({ ...countForm, countedBy: e.target.value })} 
+                  placeholder="Name"
+                />
+              </div>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Notes</label>
+              <textarea className="form-input" rows={3} value={countForm.notes} onChange={e => setCountForm({ ...countForm, notes: e.target.value })} placeholder="Count details..." />
+            </div>
+            {countForm.itemId && countForm.countedQuantity && (
+              <div style={{ 
+                padding: '12px', 
+                borderRadius: '8px', 
+                background: 'var(--bg-elevated)',
+                marginTop: '16px'
+              }}>
+                {(() => {
+                  const item = items.find(i => i.id === countForm.itemId);
+                  if (!item) return null;
+                  const counted = parseFloat(countForm.countedQuantity);
+                  const variance = counted - item.quantity;
+                  const variancePercent = item.quantity > 0 ? Math.abs((variance / item.quantity) * 100) : 0;
+                  return (
+                    <div>
+                      <div>System Quantity: <strong>{item.quantity} {item.unit}</strong></div>
+                      <div>Counted Quantity: <strong>{counted} {item.unit}</strong></div>
+                      <div>Variance: <strong style={{ color: variance >= 0 ? 'var(--success)' : 'var(--danger)' }}>
+                        {variance >= 0 ? '+' : ''}{variance.toFixed(2)} ({variancePercent.toFixed(1)}%)
+                      </strong></div>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+          </div>
+          <div className="modal-footer">
+            <button className="btn btn-secondary" onClick={() => setShowCountModal(false)}>Cancel</button>
+            <button className="btn btn-primary" onClick={submitInventoryCount}>Submit Count</button>
           </div>
         </div>
       </div>
