@@ -37,6 +37,30 @@ interface SupplierPerformance {
   totalSpend: number;
 }
 
+interface Supplier {
+  id: string;
+  name: string;
+  status: 'active' | 'inactive';
+  contactName: string;
+  email: string;
+  phone: string;
+  address: string;
+  paymentTerms: string;
+  taxId: string;
+  notes: string;
+  rating: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface SupplierFilter {
+  search: string;
+  status: 'all' | 'active' | 'inactive';
+  rating: 'all' | '1' | '2' | '3' | '4' | '5';
+  sortBy: 'name' | 'rating' | 'totalSpend' | 'onTimeRate' | 'leadTime';
+  sortOrder: 'asc' | 'desc';
+}
+
 interface AuditLogEntry {
   id: string;
   itemId: string;
@@ -238,6 +262,41 @@ export default function InventoryPage() {
     { id: 'TRF-014', itemId: '15', itemName: 'Mint Leaves', quantity: 0.2, fromLocation: 'Walk-in Freezer', toLocation: 'Bar Storage', status: 'completed', requestedBy: 'Mike Wilson', requestedAt: '2026-04-20T18:05:00Z', acceptedBy: 'Mike Wilson', acceptedAt: '2026-04-20T18:12:00Z', notes: 'Cocktail garnish for evening service' },
   ]);
   const [supplierPerformance, setSupplierPerformance] = useState<SupplierPerformance[]>([]);
+  
+  // --- SUPPLIER MANAGEMENT STATE ---
+  const [suppliers, setSuppliers] = useState<Supplier[]>([
+    { id: '1', name: 'Fresh Foods Co', status: 'active', contactName: 'John Smith', email: 'john@freshfoods.com', phone: '(555) 123-4567', address: '123 Main St, City', paymentTerms: 'Net 30', taxId: '12-3456789', notes: 'Primary produce supplier', rating: 4, createdAt: '2024-01-15', updatedAt: '2024-03-20' },
+    { id: '2', name: 'Ocean Catch', status: 'active', contactName: 'Maria Garcia', email: 'maria@oceancatch.com', phone: '(555) 234-5678', address: '456 Harbor Rd, City', paymentTerms: 'Net 15', taxId: '23-4567890', notes: 'Seafood specialist', rating: 5, createdAt: '2024-01-12', updatedAt: '2024-03-18' },
+    { id: '3', name: 'Prime Meats', status: 'active', contactName: 'Robert Johnson', email: 'robert@primemeats.com', phone: '(555) 345-6789', address: '789 Industrial Ave, City', paymentTerms: 'Net 30', taxId: '34-5678901', notes: 'Premium meat supplier', rating: 4, createdAt: '2024-02-01', updatedAt: '2024-03-22' },
+    { id: '4', name: 'Green Valley Farms', status: 'inactive', contactName: 'Sarah Williams', email: 'sarah@greenvalley.com', phone: '(555) 456-7890', address: '321 Farm Rd, City', paymentTerms: 'Net 7', taxId: '45-6789012', notes: 'Organic produce - currently on hold', rating: 3, createdAt: '2024-01-20', updatedAt: '2024-03-10' },
+    { id: '5', name: 'Beverage Distributors', status: 'active', contactName: 'David Lee', email: 'david@bevdist.com', phone: '(555) 567-8901', address: '654 Warehouse Ln, City', paymentTerms: 'Net 30', taxId: '56-7890123', notes: 'Beverage and alcohol supplier', rating: 4, createdAt: '2024-01-25', updatedAt: '2024-03-25' },
+  ]);
+
+  const [supplierFilter, setSupplierFilter] = useState<SupplierFilter>({
+    search: '',
+    status: 'all',
+    rating: 'all',
+    sortBy: 'name',
+    sortOrder: 'asc'
+  });
+
+  const [showSupplierModal, setShowSupplierModal] = useState(false);
+  const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null);
+  const [selectedSupplier, setSelectedSupplier] = useState<Supplier | null>(null);
+  const [showSupplierDetailModal, setShowSupplierDetailModal] = useState(false);
+  
+  const [supplierForm, setSupplierForm] = useState({
+    name: '',
+    status: 'active' as 'active' | 'inactive',
+    contactName: '',
+    email: '',
+    phone: '',
+    address: '',
+    paymentTerms: '',
+    taxId: '',
+    notes: '',
+    rating: 3
+  });
   const [locations, setLocations] = useState<Location[]>([
     { id: '1', name: 'Main Warehouse', type: 'warehouse' },
     { id: '2', name: 'Kitchen Prep', type: 'kitchen' },
@@ -343,7 +402,7 @@ export default function InventoryPage() {
   const [alerts, setAlerts] = useState<LowStockAlert[]>([]);
   const [showAlertsBanner, setShowAlertsBanner] = useState(true);
 
-  const suppliers = ['Fresh Foods Co', 'Ocean Catch', 'Prime Meats', 'Green Valley Farms', 'Beverage Distributors'];
+
 
   const [formData, setFormData] = useState({
     name: '',
@@ -712,7 +771,7 @@ export default function InventoryPage() {
       costPerUnit: item.costPerUnit
     }));
     setRestockItems(lowStock);
-    setRestockSupplier(suppliers[0]);
+    setRestockSupplier(suppliers[0]?.name || '');
     setRestockNotes('Auto-generated restock order');
     setShowRestockModal(true);
   }, [items, suppliers]);
@@ -797,21 +856,133 @@ export default function InventoryPage() {
     return { totalWaste, wasteByReason, wastePercentage, totalCount: wasteLogs.length };
   }, [wasteLogs, totalValue]);
   
+  // --- SUPPLIER MANAGEMENT FUNCTIONS ---
+  const openAddSupplierModal = useCallback(() => {
+    setEditingSupplier(null);
+    setSupplierForm({
+      name: '',
+      status: 'active',
+      contactName: '',
+      email: '',
+      phone: '',
+      address: '',
+      paymentTerms: 'Net 30',
+      taxId: '',
+      notes: '',
+      rating: 3
+    });
+    setShowSupplierModal(true);
+  }, []);
+
+  const openEditSupplierModal = useCallback((supplier: Supplier) => {
+    setEditingSupplier(supplier);
+    setSupplierForm({
+      name: supplier.name,
+      status: supplier.status,
+      contactName: supplier.contactName,
+      email: supplier.email,
+      phone: supplier.phone,
+      address: supplier.address,
+      paymentTerms: supplier.paymentTerms,
+      taxId: supplier.taxId,
+      notes: supplier.notes,
+      rating: supplier.rating
+    });
+    setShowSupplierModal(true);
+  }, []);
+
+  const openSupplierDetailModal = useCallback((supplier: Supplier) => {
+    setSelectedSupplier(supplier);
+    setShowSupplierDetailModal(true);
+  }, []);
+
+  const saveSupplier = useCallback(() => {
+    if (!supplierForm.name.trim()) return;
+
+    if (editingSupplier) {
+      setSuppliers(prev => prev.map(s => s.id === editingSupplier.id ? {
+        ...s,
+        ...supplierForm,
+        updatedAt: new Date().toISOString().split('T')[0]
+      } : s));
+    } else {
+      setSuppliers(prev => [...prev, {
+        id: String(prev.length + 1),
+        ...supplierForm,
+        createdAt: new Date().toISOString().split('T')[0],
+        updatedAt: new Date().toISOString().split('T')[0]
+      }]);
+    }
+    setShowSupplierModal(false);
+  }, [supplierForm, editingSupplier]);
+
+  const deleteSupplier = useCallback((supplierId: string) => {
+    if (confirm('Are you sure you want to delete this supplier?')) {
+      setSuppliers(prev => prev.filter(s => s.id !== supplierId));
+    }
+  }, []);
+
+  const getSupplierOrders = useCallback((supplierId: string) => {
+    const supplier = suppliers.find(s => s.id === supplierId);
+    return supplier ? purchaseOrders.filter(o => o.supplier === supplier.name) : [];
+  }, [suppliers, purchaseOrders]);
+
+  // --- SUPPLIER PERFORMANCE CALCULATION ---
+  const calculateSupplierPerformance = useCallback((supplier: Supplier) => {
+    const supplierOrders = purchaseOrders.filter(o => o.supplier === supplier.name);
+    const totalOrders = supplierOrders.length;
+    
+    return {
+      totalOrders,
+      onTimeRate: totalOrders > 0 ? 0.85 + (Math.random() * 0.15) : 0,
+      pricingAccuracy: totalOrders > 0 ? 0.90 + (Math.random() * 0.10) : 0,
+      averageLeadTime: totalOrders > 0 ? 1.5 + (Math.random() * 3) : 0,
+      totalSpend: supplierOrders.reduce((sum, o) => sum + o.total, 0),
+      onTimeDeliveries: Math.floor(totalOrders * 0.85),
+      accuratePricingOrders: Math.floor(totalOrders * 0.92)
+    };
+  }, [purchaseOrders]);
+
+  // --- FILTERED & SORTED SUPPLIERS ---
+  const filteredSuppliers = useMemo(() => {
+    return suppliers
+      .filter(s => {
+        const matchesSearch = s.name.toLowerCase().includes(supplierFilter.search.toLowerCase()) ||
+                            s.contactName.toLowerCase().includes(supplierFilter.search.toLowerCase());
+        const matchesStatus = supplierFilter.status === 'all' || s.status === supplierFilter.status;
+        const matchesRating = supplierFilter.rating === 'all' || s.rating === parseInt(supplierFilter.rating);
+        return matchesSearch && matchesStatus && matchesRating;
+      })
+      .sort((a, b) => {
+        let comparison = 0;
+        const perfA = calculateSupplierPerformance(a);
+        const perfB = calculateSupplierPerformance(b);
+        
+        switch (supplierFilter.sortBy) {
+          case 'name': comparison = a.name.localeCompare(b.name); break;
+          case 'rating': comparison = a.rating - b.rating; break;
+          case 'totalSpend': comparison = perfA.totalSpend - perfB.totalSpend; break;
+          case 'onTimeRate': comparison = perfA.onTimeRate - perfB.onTimeRate; break;
+          case 'leadTime': comparison = perfA.averageLeadTime - perfB.averageLeadTime; break;
+        }
+        return supplierFilter.sortOrder === 'asc' ? comparison : -comparison;
+      });
+  }, [suppliers, supplierFilter, calculateSupplierPerformance]);
+
   // --- SUPPLIER PERFORMANCE ---
   const supplierStats = useMemo(() => {
     return suppliers.map(supplier => {
-      const supplierOrders = purchaseOrders.filter(o => o.supplier === supplier);
-      
+      const perf = calculateSupplierPerformance(supplier);
       return {
-        supplier,
-        totalOrders: supplierOrders.length,
-        onTimeDeliveries: Math.floor(supplierOrders.length * 0.85), // Mock 85% on-time
-        accuratePricingOrders: Math.floor(supplierOrders.length * 0.92), // Mock 92% accuracy
-        averageLeadTime: 2.3 + Math.random(), // Mock lead time
-        totalSpend: supplierOrders.reduce((sum, o) => sum + o.total, 0)
+        supplier: supplier.name,
+        totalOrders: perf.totalOrders,
+        onTimeDeliveries: perf.onTimeDeliveries,
+        accuratePricingOrders: perf.accuratePricingOrders,
+        averageLeadTime: perf.averageLeadTime,
+        totalSpend: perf.totalSpend
       };
     });
-  }, [suppliers, purchaseOrders]);
+  }, [suppliers, calculateSupplierPerformance]);
   
   // --- FIFO COSTING ---
   const calculateFifoCost = useCallback((itemId: string, quantity: number) => {
@@ -2007,39 +2178,106 @@ export default function InventoryPage() {
 
       {/* SUPPLIERS VIEW */}
       {view === 'suppliers' && (
-        <div className="data-card">
-          <div className="data-card-header">
-            <h3 className="data-card-title">Supplier Performance</h3>
+        <>
+          <div className="filter-bar">
+            <input 
+              className="form-input" 
+              style={{ width: '300px' }}
+              placeholder="Search suppliers..." 
+              value={supplierFilter.search}
+              onChange={e => setSupplierFilter(prev => ({ ...prev, search: e.target.value }))}
+            />
+            <select className="form-select" style={{ width: '120px' }} value={supplierFilter.status} onChange={e => setSupplierFilter(prev => ({ ...prev, status: e.target.value as any }))}>
+              <option value="all">All Status</option>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+            </select>
+            <select className="form-select" style={{ width: '120px' }} value={supplierFilter.rating} onChange={e => setSupplierFilter(prev => ({ ...prev, rating: e.target.value as any }))}>
+              <option value="all">All Ratings</option>
+              <option value="5">5 Stars</option>
+              <option value="4">4 Stars</option>
+              <option value="3">3 Stars</option>
+              <option value="2">2 Stars</option>
+              <option value="1">1 Star</option>
+            </select>
+            <select className="form-select" style={{ width: '150px' }} value={supplierFilter.sortBy} onChange={e => setSupplierFilter(prev => ({ ...prev, sortBy: e.target.value as any }))}>
+              <option value="name">Sort by Name</option>
+              <option value="rating">Sort by Rating</option>
+              <option value="totalSpend">Sort by Spend</option>
+              <option value="onTimeRate">Sort by On-Time</option>
+              <option value="leadTime">Sort by Lead Time</option>
+            </select>
+            <button className="btn btn-secondary" onClick={() => setSupplierFilter(prev => ({ ...prev, sortOrder: prev.sortOrder === 'asc' ? 'desc' : 'asc' }))}>
+              {supplierFilter.sortOrder === 'asc' ? '↑' : '↓'}
+            </button>
+            <button className="btn btn-primary" onClick={openAddSupplierModal}>
+              + Add Supplier
+            </button>
           </div>
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Supplier</th>
-                <th>Total Orders</th>
-                <th>On-Time Rate</th>
-                <th>Pricing Accuracy</th>
-                <th>Avg Lead Time</th>
-                <th>Total Spend</th>
-              </tr>
-            </thead>
-            <tbody>
-              {supplierStats.map(s => (
-                <tr key={s.supplier}>
-                  <td>{s.supplier}</td>
-                  <td className="mono">{s.totalOrders}</td>
-                  <td className="mono" style={{ color: s.totalOrders > 0 ? ((s.onTimeDeliveries / s.totalOrders) > 0.9 ? 'var(--success)' : 'var(--warning)') : 'inherit' }}>
-                    {s.totalOrders > 0 ? ((s.onTimeDeliveries / s.totalOrders) * 100).toFixed(1) : 0}%
-                  </td>
-                  <td className="mono" style={{ color: s.totalOrders > 0 ? ((s.accuratePricingOrders / s.totalOrders) > 0.95 ? 'var(--success)' : 'var(--warning)') : 'inherit' }}>
-                    {s.totalOrders > 0 ? ((s.accuratePricingOrders / s.totalOrders) * 100).toFixed(1) : 0}%
-                  </td>
-                  <td className="mono">{s.averageLeadTime.toFixed(1)} days</td>
-                  <td className="mono">{formatCurrency(s.totalSpend)}</td>
+
+          <div className="data-card">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Supplier</th>
+                  <th>Contact</th>
+                  <th>Status</th>
+                  <th>Rating</th>
+                  <th>Orders</th>
+                  <th>On-Time Rate</th>
+                  <th>Lead Time</th>
+                  <th>Total Spend</th>
+                  <th>Actions</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {filteredSuppliers.map(supplier => {
+                  const perf = calculateSupplierPerformance(supplier);
+                  return (
+                    <tr key={supplier.id}>
+                      <td>
+                        <div style={{ fontWeight: 600 }}>{supplier.name}</div>
+                        <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{supplier.paymentTerms}</div>
+                      </td>
+                      <td>
+                        <div>{supplier.contactName}</div>
+                        <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{supplier.email}</div>
+                      </td>
+                      <td>
+                        <span className={`badge ${supplier.status === 'active' ? 'badge-available' : 'badge-cancelled'}`}>
+                          {supplier.status}
+                        </span>
+                      </td>
+                      <td>
+                        <div style={{ display: 'flex', gap: '2px' }}>
+                          {[1, 2, 3, 4, 5].map(star => (
+                            <span key={star} style={{ color: star <= supplier.rating ? '#fbbf24' : '#e5e7eb' }}>★</span>
+                          ))}
+                        </div>
+                      </td>
+                      <td className="mono">{perf.totalOrders}</td>
+                      <td className="mono" style={{ color: perf.onTimeRate >= 0.9 ? 'var(--success)' : perf.onTimeRate >= 0.75 ? 'var(--warning)' : 'var(--danger)' }}>
+                        {(perf.onTimeRate * 100).toFixed(1)}%
+                      </td>
+                      <td className="mono">{perf.averageLeadTime.toFixed(1)}d</td>
+                      <td className="mono" style={{ fontWeight: 600 }}>{formatCurrency(perf.totalSpend)}</td>
+                      <td>
+                        <button className="action-btn" onClick={() => openSupplierDetailModal(supplier)}>View</button>
+                        <button className="action-btn edit" style={{ marginLeft: '8px' }} onClick={() => openEditSupplierModal(supplier)}>Edit</button>
+                        <button className="action-btn" style={{ marginLeft: '8px', color: 'var(--danger)' }} onClick={() => deleteSupplier(supplier.id)}>Delete</button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            {filteredSuppliers.length === 0 && (
+              <div className="empty-state">
+                <div className="empty-state-text">No suppliers found</div>
+              </div>
+            )}
+          </div>
+        </>
       )}
 
       {/* TRANSFERS VIEW */}
@@ -2517,12 +2755,20 @@ export default function InventoryPage() {
       </div>
 
       {/* Restock Modal */}
-      <div className={`modal-overlay ${showRestockModal ? 'active' : ''}`} onClick={() => setShowRestockModal(false)}>
-        <div className="modal" style={{ maxWidth: '600px' }} onClick={e => e.stopPropagation()}>
-          <div className="modal-header">
-            <h2 className="modal-title">Create Restock Order</h2>
-            <button className="modal-close" onClick={() => setShowRestockModal(false)}>×</button>
-          </div>
+      {showRestockModal && (
+        <div className="modal-overlay" onClick={() => setShowRestockModal(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 className="modal-title">Create Restock Order</h3>
+              <button className="modal-close" onClick={() => setShowRestockModal(false)}>×</button>
+            </div>
+            <div className="modal-content">
+              <div className="form-group">
+                <label>Supplier</label>
+                <select className="form-select" style={{ width: '200px' }} value={restockSupplier} onChange={e => setRestockSupplier(e.target.value)}>
+                  {suppliers.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                </select>
+              </div>
           <div className="modal-body">
             <div className="form-group">
               <label className="form-label">Supplier</label>
@@ -2906,6 +3152,218 @@ export default function InventoryPage() {
           </div>
         </div>
       </div>
+
+      {/* Supplier Form Modal */}
+      {showSupplierModal && (
+        <div className="modal-overlay" onClick={() => setShowSupplierModal(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 className="modal-title">{editingSupplier ? 'Edit Supplier' : 'Add Supplier'}</h3>
+              <button className="modal-close" onClick={() => setShowSupplierModal(false)}>×</button>
+            </div>
+            <div className="modal-content">
+              <div className="form-group">
+                <label className="form-label">Supplier Name</label>
+                <input 
+                  className="form-input" 
+                  value={supplierForm.name} 
+                  onChange={e => setSupplierForm(prev => ({ ...prev, name: e.target.value }))} 
+                  placeholder="Company name"
+                />
+              </div>
+              <div className="grid-2">
+                <div className="form-group">
+                  <label className="form-label">Status</label>
+                  <select className="form-select" value={supplierForm.status} onChange={e => setSupplierForm(prev => ({ ...prev, status: e.target.value as any }))}>
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive</option>
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Rating</label>
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center', padding: '8px 0' }}>
+                    {[1, 2, 3, 4, 5].map(star => (
+                      <button 
+                        key={star} 
+                        type="button"
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '24px', color: star <= supplierForm.rating ? '#fbbf24' : '#e5e7eb' }}
+                        onClick={() => setSupplierForm(prev => ({ ...prev, rating: star }))}
+                      >★</button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <div className="grid-2">
+                <div className="form-group">
+                  <label className="form-label">Contact Name</label>
+                  <input 
+                    className="form-input" 
+                    value={supplierForm.contactName} 
+                    onChange={e => setSupplierForm(prev => ({ ...prev, contactName: e.target.value }))} 
+                    placeholder="Primary contact"
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Phone</label>
+                  <input 
+                    className="form-input" 
+                    value={supplierForm.phone} 
+                    onChange={e => setSupplierForm(prev => ({ ...prev, phone: e.target.value }))} 
+                    placeholder="Contact number"
+                  />
+                </div>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Email</label>
+                <input 
+                  className="form-input" 
+                  type="email"
+                  value={supplierForm.email} 
+                  onChange={e => setSupplierForm(prev => ({ ...prev, email: e.target.value }))} 
+                  placeholder="email@supplier.com"
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Address</label>
+                <input 
+                  className="form-input" 
+                  value={supplierForm.address} 
+                  onChange={e => setSupplierForm(prev => ({ ...prev, address: e.target.value }))} 
+                  placeholder="Street address"
+                />
+              </div>
+              <div className="grid-2">
+                <div className="form-group">
+                  <label className="form-label">Payment Terms</label>
+                  <select className="form-select" value={supplierForm.paymentTerms} onChange={e => setSupplierForm(prev => ({ ...prev, paymentTerms: e.target.value }))}>
+                    <option value="Net 7">Net 7</option>
+                    <option value="Net 15">Net 15</option>
+                    <option value="Net 30">Net 30</option>
+                    <option value="Net 45">Net 45</option>
+                    <option value="Net 60">Net 60</option>
+                    <option value="COD">Cash on Delivery</option>
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Tax ID</label>
+                  <input 
+                    className="form-input" 
+                    value={supplierForm.taxId} 
+                    onChange={e => setSupplierForm(prev => ({ ...prev, taxId: e.target.value }))} 
+                    placeholder="Tax identification number"
+                  />
+                </div>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Notes</label>
+                <textarea 
+                  className="form-input" 
+                  rows={3}
+                  value={supplierForm.notes} 
+                  onChange={e => setSupplierForm(prev => ({ ...prev, notes: e.target.value }))} 
+                  placeholder="Additional notes about this supplier..."
+                />
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={() => setShowSupplierModal(false)}>Cancel</button>
+              <button className="btn btn-primary" onClick={saveSupplier}>{editingSupplier ? 'Update Supplier' : 'Add Supplier'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Supplier Detail Modal */}
+      {showSupplierDetailModal && selectedSupplier && (
+        <div className="modal-overlay" onClick={() => setShowSupplierDetailModal(false)}>
+          <div className="modal" style={{ maxWidth: '700px' }} onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 className="modal-title">{selectedSupplier.name}</h3>
+              <button className="modal-close" onClick={() => setShowSupplierDetailModal(false)}>×</button>
+            </div>
+            <div className="modal-content">
+              <div className="stat-grid">
+                <div className="stat-card" style={{ background: 'var(--primary)' }}>
+                  <div className="stat-value">{getSupplierOrders(selectedSupplier.id).length}</div>
+                  <div className="stat-label">Total Orders</div>
+                </div>
+                <div className="stat-card" style={{ background: 'var(--success)' }}>
+                  <div className="stat-value">{formatCurrency(calculateSupplierPerformance(selectedSupplier).totalSpend)}</div>
+                  <div className="stat-label">Total Spend</div>
+                </div>
+                <div className="stat-card" style={{ background: 'var(--warning)' }}>
+                  <div className="stat-value">{(calculateSupplierPerformance(selectedSupplier).onTimeRate * 100).toFixed(0)}%</div>
+                  <div className="stat-label">On-Time Rate</div>
+                </div>
+                <div className="stat-card" style={{ background: 'var(--info)' }}>
+                  <div className="stat-value">{calculateSupplierPerformance(selectedSupplier).averageLeadTime.toFixed(1)}d</div>
+                  <div className="stat-label">Avg Lead Time</div>
+                </div>
+              </div>
+
+              <div style={{ marginTop: '24px' }}>
+                <h4 style={{ marginBottom: '16px' }}>Contact Information</h4>
+                <div className="data-card" style={{ padding: '16px' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                    <div><strong>Contact:</strong> {selectedSupplier.contactName}</div>
+                    <div><strong>Phone:</strong> {selectedSupplier.phone}</div>
+                    <div><strong>Email:</strong> {selectedSupplier.email}</div>
+                    <div><strong>Terms:</strong> {selectedSupplier.paymentTerms}</div>
+                    <div style={{ gridColumn: 'span 2' }}><strong>Address:</strong> {selectedSupplier.address}</div>
+                    {selectedSupplier.notes && (
+                      <div style={{ gridColumn: 'span 2' }}><strong>Notes:</strong> {selectedSupplier.notes}</div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ marginTop: '24px' }}>
+                <h4 style={{ marginBottom: '16px' }}>Recent Orders</h4>
+                <div className="data-card">
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>Order ID</th>
+                        <th>Date</th>
+                        <th>Total</th>
+                        <th>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {getSupplierOrders(selectedSupplier.id).slice(0, 5).map(order => (
+                        <tr key={order.id}>
+                          <td className="mono">{order.id}</td>
+                          <td>{order.createdAt}</td>
+                          <td className="mono">{formatCurrency(order.total)}</td>
+                          <td>
+                            <span className={`badge ${
+                              order.status === 'received' ? 'badge-available' :
+                              order.status === 'ordered' ? 'badge-in_progress' :
+                              order.status === 'pending' ? 'badge-pending' :
+                              'badge-cancelled'
+                            }`}>
+                              {order.status}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {getSupplierOrders(selectedSupplier.id).length === 0 && (
+                    <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                      No orders found for this supplier
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={() => setShowSupplierDetailModal(false)}>Close</button>
+              <button className="btn btn-primary" onClick={() => { setShowSupplierDetailModal(false); openEditSupplierModal(selectedSupplier); }}>Edit Supplier</button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
