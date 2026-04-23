@@ -10,6 +10,76 @@ interface InventoryItemWithBatch extends InventoryItem {
   batchNumber?: string;
   receivedDate?: string;
   lowStockThreshold?: number;
+  barcode?: string;
+  location?: string;
+  fifoLayers?: { quantity: number; cost: number; receivedDate: string; batch: string }[];
+}
+
+// New Advanced Feature Interfaces
+interface WasteLog {
+  id: string;
+  itemId: string;
+  itemName: string;
+  quantity: number;
+  cost: number;
+  reason: 'expired' | 'spoilage' | 'damage' | 'overproduction' | 'theft' | 'other';
+  recordedBy: string;
+  recordedAt: string;
+  notes?: string;
+}
+
+interface SupplierPerformance {
+  supplier: string;
+  totalOrders: number;
+  onTimeDeliveries: number;
+  accuratePricingOrders: number;
+  averageLeadTime: number;
+  totalSpend: number;
+}
+
+interface AuditLogEntry {
+  id: string;
+  itemId: string;
+  itemName: string;
+  action: string;
+  previousValue: any;
+  newValue: any;
+  userId: string;
+  userName: string;
+  timestamp: string;
+  ipAddress?: string;
+}
+
+interface StockTransfer {
+  id: string;
+  itemId: string;
+  itemName: string;
+  quantity: number;
+  fromLocation: string;
+  toLocation: string;
+  status: 'requested' | 'in_transit' | 'completed' | 'cancelled';
+  requestedBy: string;
+  requestedAt: string;
+  acceptedBy?: string;
+  acceptedAt?: string;
+  notes?: string;
+}
+
+interface Location {
+  id: string;
+  name: string;
+  type: 'warehouse' | 'kitchen' | 'storage' | 'cooler' | 'freezer';
+}
+
+interface ForecastItem {
+  itemId: string;
+  itemName: string;
+  currentStock: number;
+  dailyUsageRate: number;
+  daysUntilExhaustion: number;
+  recommendedReorderQuantity: number;
+  reorderPoint: number;
+  safetyStock: number;
 }
 
 interface InventoryCountLog {
@@ -81,7 +151,48 @@ export default function InventoryPage() {
   })));
   
   const [orders, setOrders] = useState<Order[]>(initialOrders);
-  const [view, setView] = useState<'list' | 'low-stock' | 'valuation' | 'orders' | 'movements' | 'counts' | 'alerts'>('list');
+  const [view, setView] = useState<'list' | 'low-stock' | 'valuation' | 'orders' | 'movements' | 'counts' | 'alerts' | 'forecasting' | 'waste' | 'suppliers' | 'audit' | 'transfers'>('list');
+  
+  // Advanced Features State
+  const [wasteLogs, setWasteLogs] = useState<WasteLog[]>([]);
+  const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
+  const [transfers, setTransfers] = useState<StockTransfer[]>([]);
+  const [supplierPerformance, setSupplierPerformance] = useState<SupplierPerformance[]>([]);
+  const [locations, setLocations] = useState<Location[]>([
+    { id: '1', name: 'Main Warehouse', type: 'warehouse' },
+    { id: '2', name: 'Kitchen Prep', type: 'kitchen' },
+    { id: '3', name: 'Walk-in Cooler', type: 'cooler' },
+    { id: '4', name: 'Freezer', type: 'freezer' },
+    { id: '5', name: 'Dry Storage', type: 'storage' },
+  ]);
+  
+  // Barcode scanning state
+  const [scanMode, setScanMode] = useState(false);
+  const [scannedBarcode, setScannedBarcode] = useState('');
+  
+  // New modals
+  const [showWasteModal, setShowWasteModal] = useState(false);
+  const [showTransferModal, setShowTransferModal] = useState(false);
+  const [showBarcodeModal, setShowBarcodeModal] = useState(false);
+  
+  // Waste form state
+  const [wasteForm, setWasteForm] = useState({
+    itemId: '',
+    quantity: '',
+    reason: 'spoilage' as WasteLog['reason'],
+    notes: '',
+    recordedBy: 'System'
+  });
+  
+  // Transfer form state
+  const [transferForm, setTransferForm] = useState({
+    itemId: '',
+    quantity: '',
+    fromLocation: '',
+    toLocation: '',
+    notes: '',
+    requestedBy: 'System'
+  });
   const [searchTerm, setSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [showModal, setShowModal] = useState(false);
@@ -154,7 +265,9 @@ export default function InventoryPage() {
     salePrice: '',
     expiryDate: '',
     batchNumber: '',
-    receivedDate: ''
+    receivedDate: '',
+    barcode: '',
+    location: ''
   });
 
   // Automatic recipe-based stock deduction when orders are completed
@@ -277,7 +390,9 @@ export default function InventoryPage() {
     setFormData({ 
       name: '', category: 'Ingredients', quantity: '', unit: 'pieces', reorderLevel: '', 
       costPerUnit: '', salePrice: '', expiryDate: '', batchNumber: '', 
-      receivedDate: new Date().toISOString().split('T')[0] 
+      receivedDate: new Date().toISOString().split('T')[0],
+      barcode: '',
+      location: ''
     });
     setShowModal(true);
   }, []);
@@ -294,7 +409,9 @@ export default function InventoryPage() {
       salePrice: item.salePrice?.toString() || '',
       expiryDate: item.expiryDate || '',
       batchNumber: item.batchNumber || '',
-      receivedDate: item.receivedDate || ''
+      receivedDate: item.receivedDate || '',
+      barcode: item.barcode || '',
+      location: item.location || ''
     });
     setShowModal(true);
   }, []);
@@ -317,7 +434,7 @@ export default function InventoryPage() {
   const saveItem = useCallback(() => {
     if (!formData.name || !formData.quantity) return;
     
-    if (editingItem) {
+       if (editingItem) {
       setItems(prevItems => prevItems.map(i => i.id === editingItem.id ? {
         ...i,
         name: formData.name,
@@ -330,8 +447,11 @@ export default function InventoryPage() {
         salePrice: formData.salePrice ? parseFloat(formData.salePrice) : undefined,
         expiryDate: formData.expiryDate || undefined,
         batchNumber: formData.batchNumber || undefined,
-        receivedDate: formData.receivedDate || undefined
+        receivedDate: formData.receivedDate || undefined,
+        barcode: formData.barcode || undefined,
+        location: formData.location || undefined
       } : i));
+      addAuditLog(editingItem.id, 'item_updated', editingItem, formData);
     } else {
       setItems(prevItems => {
         const newItem: InventoryItemWithBatch = {
@@ -346,8 +466,12 @@ export default function InventoryPage() {
           salePrice: formData.salePrice ? parseFloat(formData.salePrice) : undefined,
           expiryDate: formData.expiryDate || undefined,
           batchNumber: formData.batchNumber || undefined,
-          receivedDate: formData.receivedDate || undefined
+          receivedDate: formData.receivedDate || undefined,
+          barcode: formData.barcode || generateBarcode(String(prevItems.length + 1)),
+          location: formData.location || undefined,
+          fifoLayers: []
         };
+        addAuditLog(newItem.id, 'item_created', null, newItem);
         return [...prevItems, newItem];
       });
     }
@@ -521,6 +645,108 @@ export default function InventoryPage() {
   }, [restockItems, restockSupplier, restockNotes]);
 
   const restockTotal = useMemo(() => restockItems.reduce((sum, item) => sum + (item.quantity * item.costPerUnit), 0), [restockItems]);
+  
+  // --- DEMAND FORECASTING & SMART REORDERING ---
+  const forecastData = useMemo(() => {
+    return items.map(item => {
+      const itemMovements = stockMovements.filter(m => 
+        m.itemId === item.id && (m.type === 'used' || m.type === 'order_consumption')
+      );
+      
+      const totalConsumed = Math.abs(itemMovements.reduce((sum, m) => sum + m.quantity, 0));
+      const days = itemMovements.length > 0 
+        ? Math.max(1, Math.ceil((new Date().getTime() - new Date(itemMovements[itemMovements.length - 1].date).getTime()) / (1000 * 60 * 60 * 24)))
+        : 7;
+      
+      const dailyUsageRate = totalConsumed / days;
+      const daysUntilExhaustion = dailyUsageRate > 0 ? Math.floor(item.quantity / dailyUsageRate) : 999;
+      const safetyStock = dailyUsageRate * 3;
+      const reorderPoint = (dailyUsageRate * 7) + safetyStock;
+      const recommendedReorderQuantity = Math.max(0, Math.ceil(reorderPoint - item.quantity + (dailyUsageRate * 14)));
+      
+      return {
+        itemId: item.id,
+        itemName: item.name,
+        currentStock: item.quantity,
+        dailyUsageRate: Math.max(dailyUsageRate, 0.01),
+        daysUntilExhaustion: Math.max(0, daysUntilExhaustion),
+        recommendedReorderQuantity,
+        reorderPoint,
+        safetyStock
+      };
+    });
+  }, [items, stockMovements]);
+
+  // --- WASTE ANALYTICS ---
+  const wasteStats = useMemo(() => {
+    const totalWaste = wasteLogs.reduce((sum, w) => sum + w.cost, 0);
+    const wasteByReason = wasteLogs.reduce((acc, w) => {
+      acc[w.reason] = (acc[w.reason] || 0) + w.cost;
+      return acc;
+    }, {} as Record<string, number>);
+    
+    const wastePercentage = totalValue > 0 ? (totalWaste / totalValue) * 100 : 0;
+    
+    return { totalWaste, wasteByReason, wastePercentage, totalCount: wasteLogs.length };
+  }, [wasteLogs, totalValue]);
+  
+  // --- SUPPLIER PERFORMANCE ---
+  const supplierStats = useMemo(() => {
+    return suppliers.map(supplier => {
+      const supplierOrders = purchaseOrders.filter(o => o.supplier === supplier);
+      
+      return {
+        supplier,
+        totalOrders: supplierOrders.length,
+        onTimeDeliveries: Math.floor(supplierOrders.length * 0.85), // Mock 85% on-time
+        accuratePricingOrders: Math.floor(supplierOrders.length * 0.92), // Mock 92% accuracy
+        averageLeadTime: 2.3 + Math.random(), // Mock lead time
+        totalSpend: supplierOrders.reduce((sum, o) => sum + o.total, 0)
+      };
+    });
+  }, [suppliers, purchaseOrders]);
+  
+  // --- FIFO COSTING ---
+  const calculateFifoCost = useCallback((itemId: string, quantity: number) => {
+    const item = items.find(i => i.id === itemId);
+    if (!item) return 0;
+    
+    // If no FIFO layers, use average cost
+    if (!item.fifoLayers || item.fifoLayers.length === 0) {
+      return quantity * item.costPerUnit;
+    }
+    
+    let remainingQty = quantity;
+    let totalCost = 0;
+    
+    for (const layer of [...item.fifoLayers].sort((a, b) => 
+      new Date(a.receivedDate).getTime() - new Date(b.receivedDate).getTime()
+    )) {
+      if (remainingQty <= 0) break;
+      const takeQty = Math.min(remainingQty, layer.quantity);
+      totalCost += takeQty * layer.cost;
+      remainingQty -= takeQty;
+    }
+    
+    return totalCost + (remainingQty * item.costPerUnit);
+  }, [items]);
+
+  // --- AUDIT LOG HELPER ---
+  const addAuditLog = useCallback((itemId: string, action: string, previousValue: any, newValue: any) => {
+    const item = items.find(i => i.id === itemId);
+    setAuditLogs(prev => [{
+      id: `AUDIT-${Date.now()}`,
+      itemId,
+      itemName: item?.name || 'Unknown',
+      action,
+      previousValue,
+      newValue,
+      userId: '1',
+      userName: 'System User',
+      timestamp: new Date().toISOString(),
+      ipAddress: '127.0.0.1'
+    }, ...prev]);
+  }, [items]);
 
   // Purchase order functions
   const createPurchaseOrder = useCallback((orderItems: { itemId: string; name: string; quantity: number; cost: number }[], supplier: string, notes: string) => {
@@ -562,6 +788,107 @@ export default function InventoryPage() {
       updateOrderStatus(orderId, 'cancelled');
     }
   }, [updateOrderStatus]);
+
+  // --- WASTE FUNCTIONS ---
+  const openWasteModal = useCallback((item?: InventoryItemWithBatch) => {
+    setWasteForm({
+      itemId: item?.id || '',
+      quantity: '',
+      reason: 'spoilage',
+      notes: '',
+      recordedBy: 'System'
+    });
+    setShowWasteModal(true);
+  }, []);
+
+  const recordWaste = useCallback(() => {
+    const item = items.find(i => i.id === wasteForm.itemId);
+    if (!item || !wasteForm.quantity) return;
+    
+    const qty = parseFloat(wasteForm.quantity);
+    const cost = calculateFifoCost(item.id, qty);
+    
+    const newWaste: WasteLog = {
+      id: `WASTE-${Date.now()}`,
+      itemId: item.id,
+      itemName: item.name,
+      quantity: qty,
+      cost,
+      reason: wasteForm.reason,
+      recordedBy: wasteForm.recordedBy,
+      recordedAt: new Date().toISOString(),
+      notes: wasteForm.notes
+    };
+    
+    setWasteLogs(prev => [newWaste, ...prev]);
+    adjustQuantity(item.id, -qty);
+    addAuditLog(item.id, 'waste_recorded', item.quantity, item.quantity - qty);
+    
+    setShowWasteModal(false);
+  }, [items, wasteForm, calculateFifoCost, adjustQuantity, addAuditLog]);
+
+  // --- TRANSFER FUNCTIONS ---
+  const openTransferModal = useCallback((item?: InventoryItemWithBatch) => {
+    setTransferForm({
+      itemId: item?.id || '',
+      quantity: '',
+      fromLocation: locations[0]?.id || '',
+      toLocation: locations[1]?.id || '',
+      notes: '',
+      requestedBy: 'System'
+    });
+    setShowTransferModal(true);
+  }, [locations]);
+
+  const createTransfer = useCallback(() => {
+    const item = items.find(i => i.id === transferForm.itemId);
+    if (!item || !transferForm.quantity) return;
+    
+    const qty = parseFloat(transferForm.quantity);
+    
+    const newTransfer: StockTransfer = {
+      id: `TRANSFER-${Date.now()}`,
+      itemId: item.id,
+      itemName: item.name,
+      quantity: qty,
+      fromLocation: transferForm.fromLocation,
+      toLocation: transferForm.toLocation,
+      status: 'requested',
+      requestedBy: transferForm.requestedBy,
+      requestedAt: new Date().toISOString(),
+      notes: transferForm.notes
+    };
+    
+    setTransfers(prev => [newTransfer, ...prev]);
+    addAuditLog(item.id, 'transfer_requested', null, newTransfer);
+    
+    setShowTransferModal(false);
+  }, [items, transferForm, addAuditLog]);
+
+  const acceptTransfer = useCallback((transferId: string) => {
+    setTransfers(prev => prev.map(t => 
+      t.id === transferId ? { 
+        ...t, 
+        status: 'completed', 
+        acceptedBy: 'System User',
+        acceptedAt: new Date().toISOString()
+      } : t
+    ));
+  }, []);
+
+  // --- BARCODE FUNCTIONS ---
+  const handleBarcodeScan = useCallback((barcode: string) => {
+    const item = items.find(i => i.barcode === barcode);
+    if (item) {
+      setSelectedItem(item);
+      openEditModal(item);
+    }
+    setScanMode(false);
+  }, [items, openEditModal]);
+
+  const generateBarcode = useCallback((itemId: string) => {
+    return `KILO-${itemId.padStart(8, '0')}`;
+  }, []);
 
   const deleteOrder = useCallback((orderId: string) => {
     if (confirm('Are you sure you want to delete this order?')) {
@@ -708,6 +1035,21 @@ export default function InventoryPage() {
         <button className={`tab ${view === 'list' ? 'active' : ''}`} onClick={() => setView('list')}>All Items</button>
         <button className={`tab ${view === 'low-stock' ? 'active' : ''}`} onClick={() => setView('low-stock')}>
           Low Stock {lowStockItems.length > 0 && `(${lowStockItems.length})`}
+        </button>
+        <button className={`tab ${view === 'forecasting' ? 'active' : ''}`} onClick={() => setView('forecasting')}>
+          Forecasting
+        </button>
+        <button className={`tab ${view === 'waste' ? 'active' : ''}`} onClick={() => setView('waste')}>
+          Waste {wasteLogs.length > 0 && `(${wasteLogs.length})`}
+        </button>
+        <button className={`tab ${view === 'suppliers' ? 'active' : ''}`} onClick={() => setView('suppliers')}>
+          Suppliers
+        </button>
+        <button className={`tab ${view === 'transfers' ? 'active' : ''}`} onClick={() => setView('transfers')}>
+          Transfers
+        </button>
+        <button className={`tab ${view === 'audit' ? 'active' : ''}`} onClick={() => setView('audit')}>
+          Audit Log
         </button>
         <button className={`tab ${view === 'alerts' ? 'active' : ''}`} onClick={() => setView('alerts')}>
           Alerts {activeAlerts.length > 0 && `(${activeAlerts.length})`}
@@ -1160,7 +1502,7 @@ export default function InventoryPage() {
         </div>
       )}
 
-      {view === 'movements' && (
+       {view === 'movements' && (
         <>
           <div style={{ marginBottom: '24px', display: 'flex', gap: '16px', alignItems: 'center', flexWrap: 'wrap' }}>
             <button className="btn btn-primary" onClick={openMovementModal}>+ Record Movement</button>
@@ -1232,6 +1574,247 @@ export default function InventoryPage() {
             )}
           </div>
         </>
+      )}
+
+      {/* FORECASTING VIEW */}
+      {view === 'forecasting' && (
+        <div className="data-card">
+          <div className="data-card-header">
+            <h3 className="data-card-title">Demand Forecasting & Smart Reordering</h3>
+          </div>
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Item</th>
+                <th>Current Stock</th>
+                <th>Daily Usage Rate</th>
+                <th>Days Until Stockout</th>
+                <th>Safety Stock</th>
+                <th>Reorder Point</th>
+                <th>Recommended Qty</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {forecastData.map(f => (
+                <tr key={f.itemId}>
+                  <td>{f.itemName}</td>
+                  <td className="mono">{f.currentStock.toFixed(1)}</td>
+                  <td className="mono">{f.dailyUsageRate.toFixed(2)} / day</td>
+                  <td className="mono" style={{ color: f.daysUntilExhaustion < 7 ? 'var(--danger)' : f.daysUntilExhaustion < 14 ? 'var(--warning)' : 'var(--success)' }}>
+                    {f.daysUntilExhaustion} days
+                  </td>
+                  <td className="mono">{f.safetyStock.toFixed(1)}</td>
+                  <td className="mono">{f.reorderPoint.toFixed(1)}</td>
+                  <td className="mono" style={{ fontWeight: 600 }}>{f.recommendedReorderQuantity}</td>
+                  <td>
+                    <span className={`badge ${f.currentStock <= f.reorderPoint ? 'badge-pending' : 'badge-available'}`}>
+                      {f.currentStock <= f.reorderPoint ? 'Order Now' : 'Stock OK'}
+                    </span>
+                  </td>
+                  <td>
+                    <button className="btn btn-primary" style={{ padding: '4px 8px', fontSize: '12px' }} onClick={() => adjustQuantity(f.itemId, f.recommendedReorderQuantity)}>
+                      Reorder
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* WASTE VIEW */}
+      {view === 'waste' && (
+        <>
+          <div className="stat-grid" style={{ marginBottom: '24px' }}>
+            <div className="stat-card" style={{ background: 'var(--danger)' }}>
+              <div className="stat-value" style={{ fontSize: '32px' }}>{formatCurrency(wasteStats.totalWaste)}</div>
+              <div className="stat-label">Total Waste Cost</div>
+            </div>
+            <div className="stat-card" style={{ background: 'var(--warning)' }}>
+              <div className="stat-value" style={{ fontSize: '32px' }}>{wasteStats.wastePercentage.toFixed(1)}%</div>
+              <div className="stat-label">Waste % of Inventory</div>
+            </div>
+            <div className="stat-card" style={{ background: 'var(--primary)' }}>
+              <div className="stat-value" style={{ fontSize: '32px' }}>{wasteStats.totalCount}</div>
+              <div className="stat-label">Waste Events</div>
+            </div>
+          </div>
+          
+          <div style={{ marginBottom: '16px' }}>
+            <button className="btn btn-primary" onClick={() => openWasteModal()}>+ Record Waste</button>
+          </div>
+
+          <div className="data-card">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Item</th>
+                  <th>Quantity</th>
+                  <th>Cost</th>
+                  <th>Reason</th>
+                  <th>Recorded By</th>
+                  <th>Notes</th>
+                </tr>
+              </thead>
+              <tbody>
+                {wasteLogs.map(w => (
+                  <tr key={w.id}>
+                    <td className="mono">{new Date(w.recordedAt).toLocaleDateString()}</td>
+                    <td>{w.itemName}</td>
+                    <td className="mono">{w.quantity}</td>
+                    <td className="mono" style={{ color: 'var(--danger)' }}>{formatCurrency(w.cost)}</td>
+                    <td>
+                      <span className="badge badge-cancelled">{w.reason}</span>
+                    </td>
+                    <td>{w.recordedBy}</td>
+                    <td>{w.notes || '-'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {wasteLogs.length === 0 && (
+              <div className="empty-state">
+                <div className="empty-state-text">No waste records found</div>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* SUPPLIERS VIEW */}
+      {view === 'suppliers' && (
+        <div className="data-card">
+          <div className="data-card-header">
+            <h3 className="data-card-title">Supplier Performance</h3>
+          </div>
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Supplier</th>
+                <th>Total Orders</th>
+                <th>On-Time Rate</th>
+                <th>Pricing Accuracy</th>
+                <th>Avg Lead Time</th>
+                <th>Total Spend</th>
+              </tr>
+            </thead>
+            <tbody>
+              {supplierStats.map(s => (
+                <tr key={s.supplier}>
+                  <td>{s.supplier}</td>
+                  <td className="mono">{s.totalOrders}</td>
+                  <td className="mono" style={{ color: s.totalOrders > 0 ? ((s.onTimeDeliveries / s.totalOrders) > 0.9 ? 'var(--success)' : 'var(--warning)') : 'inherit' }}>
+                    {s.totalOrders > 0 ? ((s.onTimeDeliveries / s.totalOrders) * 100).toFixed(1) : 0}%
+                  </td>
+                  <td className="mono" style={{ color: s.totalOrders > 0 ? ((s.accuratePricingOrders / s.totalOrders) > 0.95 ? 'var(--success)' : 'var(--warning)') : 'inherit' }}>
+                    {s.totalOrders > 0 ? ((s.accuratePricingOrders / s.totalOrders) * 100).toFixed(1) : 0}%
+                  </td>
+                  <td className="mono">{s.averageLeadTime.toFixed(1)} days</td>
+                  <td className="mono">{formatCurrency(s.totalSpend)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* TRANSFERS VIEW */}
+      {view === 'transfers' && (
+        <>
+          <div style={{ marginBottom: '16px' }}>
+            <button className="btn btn-primary" onClick={() => openTransferModal()}>+ Create Transfer</button>
+          </div>
+
+          <div className="data-card">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Item</th>
+                  <th>Quantity</th>
+                  <th>From</th>
+                  <th>To</th>
+                  <th>Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {transfers.map(t => (
+                  <tr key={t.id}>
+                    <td className="mono">{new Date(t.requestedAt).toLocaleDateString()}</td>
+                    <td>{t.itemName}</td>
+                    <td className="mono">{t.quantity}</td>
+                    <td>{locations.find(l => l.id === t.fromLocation)?.name || t.fromLocation}</td>
+                    <td>{locations.find(l => l.id === t.toLocation)?.name || t.toLocation}</td>
+                    <td>
+                      <span className={`badge ${
+                        t.status === 'completed' ? 'badge-available' :
+                        t.status === 'in_transit' ? 'badge-in_progress' :
+                        t.status === 'requested' ? 'badge-pending' : 'badge-cancelled'
+                      }`}>
+                        {t.status}
+                      </span>
+                    </td>
+                    <td>
+                      {t.status === 'requested' && (
+                        <button className="btn btn-primary" style={{ padding: '4px 8px', fontSize: '12px' }} onClick={() => acceptTransfer(t.id)}>
+                          Accept
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {transfers.length === 0 && (
+              <div className="empty-state">
+                <div className="empty-state-text">No stock transfers</div>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* AUDIT LOG VIEW */}
+      {view === 'audit' && (
+        <div className="data-card">
+          <div className="data-card-header">
+            <h3 className="data-card-title">Full Audit Logs</h3>
+          </div>
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Timestamp</th>
+                <th>Item</th>
+                <th>Action</th>
+                <th>User</th>
+                <th>IP Address</th>
+              </tr>
+            </thead>
+            <tbody>
+              {auditLogs.map(log => (
+                <tr key={log.id}>
+                  <td className="mono">{new Date(log.timestamp).toLocaleString()}</td>
+                  <td>{log.itemName}</td>
+                  <td>
+                    <span className="badge badge-in_progress">{log.action}</span>
+                  </td>
+                  <td>{log.userName}</td>
+                  <td className="mono">{log.ipAddress || '-'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {auditLogs.length === 0 && (
+            <div className="empty-state">
+              <div className="empty-state-text">No audit logs recorded</div>
+            </div>
+          )}
+        </div>
       )}
 
       {/* Add/Edit Modal */}
