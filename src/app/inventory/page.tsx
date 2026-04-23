@@ -204,16 +204,27 @@ const initialFormState: NewInventoryItem = {
 export default function InventoryPage() {
   const [items, setItems] = useState<InventoryItem[]>(initialInventory);
   const [activeTab, setActiveTab] = useState<TabView>('overview');
-  const [movements] = useState<StockMovement[]>(mockMovements);
+  const [movements, setMovements] = useState<StockMovement[]>(mockMovements);
   const [purchaseOrders] = useState<PurchaseOrder[]>(mockPurchaseOrders);
   const [wasteRecords] = useState<WasteRecord[]>(mockWasteRecords);
   const [suppliers] = useState<Supplier[]>(mockSuppliers);
   const [counts] = useState<InventoryCount[]>(mockCounts);
   const [transfers] = useState<StockTransfer[]>(mockTransfers);
-  const [auditLogs] = useState<AuditLogEntry[]>(mockAuditLogs);
+  const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>(mockAuditLogs);
   const [showAddItemModal, setShowAddItemModal] = useState(false);
   const [formData, setFormData] = useState<NewInventoryItem>(initialFormState);
   const [formErrors, setFormErrors] = useState<Partial<Record<keyof NewInventoryItem, string>>>({});
+  const [showMovementModal, setShowMovementModal] = useState(false);
+  const [movementForm, setMovementForm] = useState({
+    itemId: '',
+    type: 'received' as StockMovementType,
+    quantity: 0,
+    notes: '',
+    location: '',
+  });
+  const [movementErrors, setMovementErrors] = useState<Partial<Record<keyof typeof movementForm, string>>>({});
+  const [stockMovements, setStockMovements] = useState<StockMovement[]>(mockMovements);
+  const [auditLog, setAuditLog] = useState<AuditLogEntry[]>(mockAuditLogs);
 
   const stats = useMemo(() => {
     const lowStockItems = items.filter(i => i.quantity <= i.reorderLevel);
@@ -273,6 +284,119 @@ export default function InventoryPage() {
     setFormData(initialFormState);
     setFormErrors({});
     setShowAddItemModal(true);
+  };
+
+  const validateMovementForm = (): boolean => {
+    const errors: Partial<Record<keyof typeof movementForm, string>> = {};
+    
+    if (!movementForm.itemId) errors.itemId = 'Please select an inventory item';
+    if (movementForm.quantity <= 0) errors.quantity = 'Quantity must be greater than 0';
+    if (movementForm.type === 'transfer' && !movementForm.location) errors.location = 'Location is required for transfers';
+    
+    const selectedItem = items.find(i => i.id === movementForm.itemId);
+    if (selectedItem && ['used', 'waste', 'transfer'].includes(movementForm.type)) {
+      if (movementForm.quantity > selectedItem.quantity) {
+        errors.quantity = `Insufficient stock. Available: ${selectedItem.quantity} ${selectedItem.unit}`;
+      }
+    }
+
+    setMovementErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
+  const handleMovementInputChange = (field: keyof typeof movementForm, value: string | number) => {
+    setMovementForm(prev => ({ ...prev, [field]: value }));
+    if (movementErrors[field]) {
+      setMovementErrors(prev => {
+        const next = { ...prev };
+        delete next[field];
+        return next;
+      });
+    }
+  };
+
+  const handleSaveMovement = useCallback(() => {
+    if (!validateMovementForm()) return;
+
+    const selectedItem = items.find(i => i.id === movementForm.itemId)!;
+    const previousQuantity = selectedItem.quantity;
+    
+    let quantityChange = 0;
+    switch (movementForm.type) {
+      case 'received':
+      case 'adjustment':
+        quantityChange = movementForm.quantity;
+        break;
+      case 'used':
+      case 'waste':
+      case 'transfer':
+        quantityChange = -movementForm.quantity;
+        break;
+    }
+    const newQuantity = previousQuantity + quantityChange;
+
+    // Create StockMovement entry
+    const newMovement: StockMovement = {
+      id: `m${Date.now()}`,
+      itemId: movementForm.itemId,
+      itemName: selectedItem.name,
+      type: movementForm.type,
+      quantity: movementForm.quantity * (quantityChange < 0 ? -1 : 1),
+      previousQuantity,
+      newQuantity,
+      reason: movementForm.notes || undefined,
+      userId: 'u1',
+      userName: 'John Manager',
+      createdAt: new Date(),
+      location: movementForm.type === 'transfer' ? movementForm.location : undefined,
+    };
+
+    // Update inventory quantity
+    setItems(prev => prev.map(item => 
+      item.id === movementForm.itemId 
+        ? { ...item, quantity: newQuantity }
+        : item
+    ));
+
+    // Add stock movement
+    setMovements(prev => [newMovement, ...prev]);
+
+    // Add audit log entry
+    const newAuditEntry: AuditLogEntry = {
+      id: `a${Date.now()}`,
+      action: 'CREATE',
+      entityType: 'StockMovement',
+      entityId: newMovement.id,
+      previousValue: JSON.stringify({ quantity: previousQuantity }),
+      newValue: JSON.stringify({ quantity: newQuantity }),
+      userId: 'u1',
+      userName: 'John Manager',
+      createdAt: new Date(),
+    };
+    setAuditLogs(prev => [newAuditEntry, ...prev]);
+
+    // Reset form and close modal
+    setMovementForm({
+      itemId: '',
+      type: 'received',
+      quantity: 0,
+      notes: '',
+      location: '',
+    });
+    setMovementErrors({});
+    setShowMovementModal(false);
+  }, [movementForm, items]);
+
+  const openMovementModal = () => {
+    setMovementForm({
+      itemId: '',
+      type: 'received',
+      quantity: 0,
+      notes: '',
+      location: '',
+    });
+    setMovementErrors({});
+    setShowMovementModal(true);
   };
 
   const tabs: { id: TabView; label: string }[] = [
@@ -397,7 +521,7 @@ export default function InventoryPage() {
     <div className="card">
       <div className="flex justify-between items-center mb-4">
         <h3 className="card-title">Stock Movements</h3>
-        <button className="btn btn-primary">Record Movement</button>
+        <button className="btn btn-primary" onClick={openMovementModal}>Record Movement</button>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full">
@@ -909,6 +1033,100 @@ export default function InventoryPage() {
           <div className="modal-footer">
             <button className="btn btn-secondary" onClick={() => setShowAddItemModal(false)}>Cancel</button>
             <button className="btn btn-primary" onClick={handleSaveItem}>Save Item</button>
+          </div>
+        </div>
+      </div>
+
+      {/* Record Movement Modal */}
+      <div className={`modal-overlay ${showMovementModal ? 'active' : ''}`} onClick={() => setShowMovementModal(false)}>
+        <div className="modal" style={{ maxWidth: '600px' }} onClick={e => e.stopPropagation()}>
+          <div className="modal-header">
+            <h2 className="modal-title">Record Stock Movement</h2>
+            <button className="modal-close" onClick={() => setShowMovementModal(false)}>×</button>
+          </div>
+          <div className="modal-body">
+            <div className="space-y-4">
+              <div className="form-group">
+                <label className="form-label">Inventory Item *</label>
+                <select
+                  className={`form-input ${movementErrors.itemId ? 'error' : ''}`}
+                  value={movementForm.itemId}
+                  onChange={(e) => handleMovementInputChange('itemId', e.target.value)}
+                >
+                  <option value="">Select item</option>
+                  {items.map(item => (
+                    <option key={item.id} value={item.id}>
+                      {item.name} ({item.quantity} {item.unit} available)
+                    </option>
+                  ))}
+                </select>
+                {movementErrors.itemId && <div className="form-error text-red-600 text-sm mt-1">{movementErrors.itemId}</div>}
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Movement Type *</label>
+                <select
+                  className="form-input"
+                  value={movementForm.type}
+                  onChange={(e) => handleMovementInputChange('type', e.target.value as StockMovementType)}
+                >
+                  <option value="received">Received (Stock In)</option>
+                  <option value="used">Used (Stock Out)</option>
+                  <option value="adjustment">Adjustment (Correction)</option>
+                  <option value="waste">Waste (Discarded)</option>
+                  <option value="transfer">Transfer (Moved)</option>
+                </select>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Quantity *</label>
+                <input
+                  type="number"
+                  className={`form-input ${movementErrors.quantity ? 'error' : ''}`}
+                  value={movementForm.quantity}
+                  onChange={(e) => handleMovementInputChange('quantity', parseFloat(e.target.value) || 0)}
+                  min="0"
+                  step="any"
+                  placeholder="Enter quantity"
+                />
+                {movementErrors.quantity && <div className="form-error text-red-600 text-sm mt-1">{movementErrors.quantity}</div>}
+              </div>
+
+              {movementForm.type === 'transfer' && (
+                <div className="form-group">
+                  <label className="form-label">Transfer Location *</label>
+                  <select
+                    className={`form-input ${movementErrors.location ? 'error' : ''}`}
+                    value={movementForm.location}
+                    onChange={(e) => handleMovementInputChange('location', e.target.value)}
+                  >
+                    <option value="">Select location</option>
+                    <option value="Main Storage">Main Storage</option>
+                    <option value="Walk-in Freezer">Walk-in Freezer</option>
+                    <option value="Prep Kitchen">Prep Kitchen</option>
+                    <option value="Bar Station">Bar Station</option>
+                    <option value="Dry Storage">Dry Storage</option>
+                    <option value="Other Location">Other Location</option>
+                  </select>
+                  {movementErrors.location && <div className="form-error text-red-600 text-sm mt-1">{movementErrors.location}</div>}
+                </div>
+              )}
+
+              <div className="form-group">
+                <label className="form-label">Notes / Reference</label>
+                <textarea
+                  className="form-input"
+                  value={movementForm.notes}
+                  onChange={(e) => handleMovementInputChange('notes', e.target.value)}
+                  placeholder="Add notes or reference number (optional)"
+                  rows={3}
+                />
+              </div>
+            </div>
+          </div>
+          <div className="modal-footer">
+            <button className="btn btn-secondary" onClick={() => setShowMovementModal(false)}>Cancel</button>
+            <button className="btn btn-primary" onClick={handleSaveMovement}>Record Movement</button>
           </div>
         </div>
       </div>
