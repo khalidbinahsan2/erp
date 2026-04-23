@@ -106,6 +106,32 @@ interface ForecastItem {
   safetyStock: number;
 }
 
+interface ForecastRecord {
+  id: string;
+  itemId: string;
+  itemName: string;
+  forecastDate: string;
+  forecastedQuantity: number;
+  actualQuantity: number;
+  variance: number;
+  variancePercent: number;
+  accuracyPercent: number;
+  recordedBy: string;
+  recordedAt: string;
+  adjustmentApplied: boolean;
+  adjustedUsageRate?: number;
+  notes?: string;
+}
+
+interface ForecastAccuracyStats {
+  totalRecords: number;
+  averageAccuracy: number;
+  within5Percent: number;
+  within10Percent: number;
+  overForecasts: number;
+  underForecasts: number;
+}
+
 interface InventoryCountLog {
   id: string;
   itemId: string;
