@@ -169,6 +169,38 @@ const mockAuditLogs: AuditLogEntry[] = [
   { id: 'a4', action: 'CREATE', entityType: 'WasteRecord', entityId: 'w1', userId: 'u2', userName: 'Sarah Chef', createdAt: new Date(Date.now() - 86400000) },
 ];
 
+interface NewInventoryItem {
+  name: string;
+  category: string;
+  quantity: number;
+  unit: string;
+  costPerUnit: number;
+  reorderLevel: number;
+  minStock: number;
+  maxStock: number;
+  storageLocation: string;
+  supplier: string;
+  barcode: string;
+  expiryDate: string;
+  batchNumber: string;
+}
+
+const initialFormState: NewInventoryItem = {
+  name: '',
+  category: 'Ingredients',
+  quantity: 0,
+  unit: 'each',
+  costPerUnit: 0,
+  reorderLevel: 5,
+  minStock: 2,
+  maxStock: 100,
+  storageLocation: '',
+  supplier: '',
+  barcode: '',
+  expiryDate: '',
+  batchNumber: '',
+};
+
 export default function InventoryPage() {
   const [items, setItems] = useState<InventoryItem[]>(initialInventory);
   const [activeTab, setActiveTab] = useState<TabView>('overview');
@@ -179,6 +211,9 @@ export default function InventoryPage() {
   const [counts] = useState<InventoryCount[]>(mockCounts);
   const [transfers] = useState<StockTransfer[]>(mockTransfers);
   const [auditLogs] = useState<AuditLogEntry[]>(mockAuditLogs);
+  const [showAddItemModal, setShowAddItemModal] = useState(false);
+  const [formData, setFormData] = useState<NewInventoryItem>(initialFormState);
+  const [formErrors, setFormErrors] = useState<Partial<Record<keyof NewInventoryItem, string>>>({});
 
   const stats = useMemo(() => {
     const lowStockItems = items.filter(i => i.quantity <= i.reorderLevel);
@@ -188,6 +223,57 @@ export default function InventoryPage() {
     
     return { totalItems: items.length, lowStockItems: lowStockItems.length, totalValue, totalWasteCost, pendingPOs };
   }, [items, wasteRecords, purchaseOrders]);
+
+  const validateForm = (): boolean => {
+    const errors: Partial<Record<keyof NewInventoryItem, string>> = {};
+    
+    if (!formData.name.trim()) errors.name = 'Item name is required';
+    if (formData.quantity < 0) errors.quantity = 'Quantity cannot be negative';
+    if (formData.costPerUnit < 0) errors.costPerUnit = 'Cost cannot be negative';
+    if (formData.reorderLevel < 0) errors.reorderLevel = 'Reorder level cannot be negative';
+    if (formData.minStock < 0) errors.minStock = 'Min stock cannot be negative';
+    if (formData.maxStock < 0) errors.maxStock = 'Max stock cannot be negative';
+    if (formData.minStock > formData.maxStock) errors.minStock = 'Min stock cannot exceed max stock';
+    
+    setFormErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
+  const handleInputChange = (field: keyof NewInventoryItem, value: string | number) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
+    if (formErrors[field]) {
+      setFormErrors(prev => {
+        const next = { ...prev };
+        delete next[field];
+        return next;
+      });
+    }
+  };
+
+  const handleSaveItem = useCallback(() => {
+    if (!validateForm()) return;
+
+    const newItem: InventoryItem = {
+      id: `inv${Date.now()}`,
+      name: formData.name.trim(),
+      category: formData.category,
+      quantity: formData.quantity,
+      unit: formData.unit,
+      reorderLevel: formData.reorderLevel,
+      costPerUnit: formData.costPerUnit,
+    };
+
+    setItems(prev => [...prev, newItem]);
+    setFormData(initialFormState);
+    setFormErrors({});
+    setShowAddItemModal(false);
+  }, [formData, items]);
+
+  const openAddItemModal = () => {
+    setFormData(initialFormState);
+    setFormErrors({});
+    setShowAddItemModal(true);
+  };
 
   const tabs: { id: TabView; label: string }[] = [
     { id: 'overview', label: 'Overview' },
@@ -267,7 +353,7 @@ export default function InventoryPage() {
     <div className="card">
       <div className="flex justify-between items-center mb-4">
         <h3 className="card-title">Inventory Items</h3>
-        <button className="btn btn-primary">Add Item</button>
+        <button className="btn btn-primary" onClick={openAddItemModal}>Add Item</button>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full">
@@ -646,6 +732,186 @@ export default function InventoryPage() {
       </div>
 
       {renderActiveTab()}
+
+      {/* Add Item Modal */}
+      <div className={`modal-overlay ${showAddItemModal ? 'active' : ''}`} onClick={() => setShowAddItemModal(false)}>
+        <div className="modal" style={{ maxWidth: '800px' }} onClick={e => e.stopPropagation()}>
+          <div className="modal-header">
+            <h2 className="modal-title">Add New Inventory Item</h2>
+            <button className="modal-close" onClick={() => setShowAddItemModal(false)}>×</button>
+          </div>
+          <div className="modal-body">
+            <div className="form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+              <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+                <label className="form-label">Item Name *</label>
+                <input
+                  type="text"
+                  className={`form-input ${formErrors.name ? 'error' : ''}`}
+                  value={formData.name}
+                  onChange={(e) => handleInputChange('name', e.target.value)}
+                  placeholder="Enter item name"
+                />
+                {formErrors.name && <div className="form-error text-red-600 text-sm mt-1">{formErrors.name}</div>}
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Category</label>
+                <select
+                  className="form-input"
+                  value={formData.category}
+                  onChange={(e) => handleInputChange('category', e.target.value)}
+                >
+                  <option value="Ingredients">Ingredients</option>
+                  <option value="Supplies">Supplies</option>
+                  <option value="Beverages">Beverages</option>
+                </select>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Unit Type</label>
+                <select
+                  className="form-input"
+                  value={formData.unit}
+                  onChange={(e) => handleInputChange('unit', e.target.value)}
+                >
+                  <option value="each">Each</option>
+                  <option value="kg">Kilograms</option>
+                  <option value="g">Grams</option>
+                  <option value="l">Liters</option>
+                  <option value="ml">Milliliters</option>
+                  <option value="box">Box</option>
+                  <option value="case">Case</option>
+                  <option value="packet">Packet</option>
+                </select>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Quantity *</label>
+                <input
+                  type="number"
+                  className={`form-input ${formErrors.quantity ? 'error' : ''}`}
+                  value={formData.quantity}
+                  onChange={(e) => handleInputChange('quantity', parseFloat(e.target.value) || 0)}
+                  min="0"
+                  step="any"
+                />
+                {formErrors.quantity && <div className="form-error text-red-600 text-sm mt-1">{formErrors.quantity}</div>}
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Cost per Unit *</label>
+                <input
+                  type="number"
+                  className={`form-input ${formErrors.costPerUnit ? 'error' : ''}`}
+                  value={formData.costPerUnit}
+                  onChange={(e) => handleInputChange('costPerUnit', parseFloat(e.target.value) || 0)}
+                  min="0"
+                  step="0.01"
+                  placeholder="0.00"
+                />
+                {formErrors.costPerUnit && <div className="form-error text-red-600 text-sm mt-1">{formErrors.costPerUnit}</div>}
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Reorder Level</label>
+                <input
+                  type="number"
+                  className={`form-input ${formErrors.reorderLevel ? 'error' : ''}`}
+                  value={formData.reorderLevel}
+                  onChange={(e) => handleInputChange('reorderLevel', parseFloat(e.target.value) || 0)}
+                  min="0"
+                />
+                {formErrors.reorderLevel && <div className="form-error text-red-600 text-sm mt-1">{formErrors.reorderLevel}</div>}
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Min Stock</label>
+                <input
+                  type="number"
+                  className={`form-input ${formErrors.minStock ? 'error' : ''}`}
+                  value={formData.minStock}
+                  onChange={(e) => handleInputChange('minStock', parseFloat(e.target.value) || 0)}
+                  min="0"
+                />
+                {formErrors.minStock && <div className="form-error text-red-600 text-sm mt-1">{formErrors.minStock}</div>}
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Max Stock</label>
+                <input
+                  type="number"
+                  className={`form-input ${formErrors.maxStock ? 'error' : ''}`}
+                  value={formData.maxStock}
+                  onChange={(e) => handleInputChange('maxStock', parseFloat(e.target.value) || 0)}
+                  min="0"
+                />
+                {formErrors.maxStock && <div className="form-error text-red-600 text-sm mt-1">{formErrors.maxStock}</div>}
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Storage Location</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  value={formData.storageLocation}
+                  onChange={(e) => handleInputChange('storageLocation', e.target.value)}
+                  placeholder="e.g. Walk-in Freezer, Dry Storage"
+                />
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Supplier</label>
+                <select
+                  className="form-input"
+                  value={formData.supplier}
+                  onChange={(e) => handleInputChange('supplier', e.target.value)}
+                >
+                  <option value="">Select Supplier</option>
+                  {suppliers.map(s => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Barcode</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  value={formData.barcode}
+                  onChange={(e) => handleInputChange('barcode', e.target.value)}
+                  placeholder="Scan or enter barcode"
+                />
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Batch Number</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  value={formData.batchNumber}
+                  onChange={(e) => handleInputChange('batchNumber', e.target.value)}
+                  placeholder="Batch / Lot number"
+                />
+              </div>
+
+              <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+                <label className="form-label">Expiry Date</label>
+                <input
+                  type="date"
+                  className="form-input"
+                  value={formData.expiryDate}
+                  onChange={(e) => handleInputChange('expiryDate', e.target.value)}
+                />
+              </div>
+            </div>
+          </div>
+          <div className="modal-footer">
+            <button className="btn btn-secondary" onClick={() => setShowAddItemModal(false)}>Cancel</button>
+            <button className="btn btn-primary" onClick={handleSaveItem}>Save Item</button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
