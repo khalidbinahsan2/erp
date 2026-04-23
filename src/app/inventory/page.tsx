@@ -321,7 +321,17 @@ export default function InventoryPage() {
   const [restockNotes, setRestockNotes] = useState('');
 
   // Inventory count state
-  const [countLogs, setCountLogs] = useState<InventoryCountLog[]>([]);
+  const [countLogs, setCountLogs] = useState<InventoryCountLog[]>([
+    { id: 'COUNT-0001', itemId: '2', itemName: 'Atlantic Salmon', countedQuantity: 7, systemQuantity: 8, variance: -1, variancePercent: 12.5, status: 'approved', countedBy: 'Marcus Chen', countedAt: '2026-01-12T08:45:00Z', notes: 'Missing 1 fillet - likely miscounted during last delivery' },
+    { id: 'COUNT-0002', itemId: '12', itemName: 'Lettuce', countedQuantity: 4.2, systemQuantity: 4, variance: +0.2, variancePercent: 5, status: 'approved', countedBy: 'Sarah Johnson', countedAt: '2026-01-26T10:15:00Z', notes: 'Minor overcount from previous inventory adjustment' },
+    { id: 'COUNT-0003', itemId: '14', itemName: 'Lemon', countedQuantity: 38, systemQuantity: 45, variance: -7, variancePercent: 15.6, status: 'rejected', countedBy: 'Mike Wilson', countedAt: '2026-02-09T07:30:00Z', notes: 'Rejected - count discrepancy too large, recount required' },
+    { id: 'COUNT-0004', itemId: '1', itemName: 'Arborio Rice', countedQuantity: 19, systemQuantity: 20, variance: -1, variancePercent: 5, status: 'approved', countedBy: 'Marcus Chen', countedAt: '2026-02-22T11:00:00Z', notes: 'Minor variance within acceptable limits' },
+    { id: 'COUNT-0005', itemId: '4', itemName: 'Parmesan Cheese', countedQuantity: 6, systemQuantity: 7, variance: -1, variancePercent: 14.3, status: 'pending', countedBy: 'Sarah Johnson', countedAt: '2026-03-07T14:20:00Z', notes: 'Waiting for manager approval' },
+    { id: 'COUNT-0006', itemId: '13', itemName: 'Tomatoes', countedQuantity: 8, systemQuantity: 8, variance: 0, variancePercent: 0, status: 'approved', countedBy: 'Mike Wilson', countedAt: '2026-03-14T09:45:00Z', notes: 'Perfect count matches system exactly' },
+    { id: 'COUNT-0007', itemId: '5', itemName: 'Olive Oil', countedQuantity: 21, systemQuantity: 18, variance: +3, variancePercent: 16.7, status: 'pending', countedBy: 'Marcus Chen', countedAt: '2026-03-28T16:30:00Z', notes: 'Extra bottles found in back storage - submitted for review' },
+    { id: 'COUNT-0008', itemId: '10', itemName: 'Sparkling Water', countedQuantity: 55, systemQuantity: 60, variance: -5, variancePercent: 8.3, status: 'approved', countedBy: 'Sarah Johnson', countedAt: '2026-04-05T08:10:00Z', notes: 'Variance explained by unrecorded bar usage' },
+    { id: 'COUNT-0009', itemId: '3', itemName: 'Wagyu Beef', countedQuantity: 11.5, systemQuantity: 12, variance: -0.5, variancePercent: 4.2, status: 'pending', countedBy: 'Mike Wilson', countedAt: '2026-04-20T17:55:00Z', notes: 'Count in progress - not yet finalized' },
+  ]);
   const [countForm, setCountForm] = useState({
     itemId: '',
     countedQuantity: '',
