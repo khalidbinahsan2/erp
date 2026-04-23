@@ -5,7 +5,7 @@ import { inventoryItems as initialInventory } from '@/lib/mockData';
 import { InventoryItem } from '@/types';
 
 type StockMovementType = 'received' | 'used' | 'adjustment' | 'waste' | 'transfer';
-type POStatus = 'draft' | 'sent' | 'partial' | 'received' | 'cancelled';
+type POStatus = 'draft' | 'pending' | 'sent' | 'partial' | 'received' | 'cancelled';
 type TabView = 'overview' | 'items' | 'movements' | 'purchaseOrders' | 'forecasting' | 'waste' | 'suppliers' | 'counts' | 'transfers' | 'audit';
 
 interface StockMovement {
@@ -205,7 +205,7 @@ export default function InventoryPage() {
   const [items, setItems] = useState<InventoryItem[]>(initialInventory);
   const [activeTab, setActiveTab] = useState<TabView>('overview');
   const [movements, setMovements] = useState<StockMovement[]>(mockMovements);
-  const [purchaseOrders] = useState<PurchaseOrder[]>(mockPurchaseOrders);
+  const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>(mockPurchaseOrders);
   const [wasteRecords] = useState<WasteRecord[]>(mockWasteRecords);
   const [suppliers] = useState<Supplier[]>(mockSuppliers);
   const [counts] = useState<InventoryCount[]>(mockCounts);
@@ -225,6 +225,145 @@ export default function InventoryPage() {
   const [movementErrors, setMovementErrors] = useState<Partial<Record<keyof typeof movementForm, string>>>({});
   const [stockMovements, setStockMovements] = useState<StockMovement[]>(mockMovements);
   const [auditLog, setAuditLog] = useState<AuditLogEntry[]>(mockAuditLogs);
+  const [showCreatePOModal, setShowCreatePOModal] = useState(false);
+  
+  interface POFormItem {
+    itemId: string;
+    orderedQuantity: number;
+    unitCost: number;
+  }
+  
+  interface POFormData {
+    supplierId: string;
+    expectedAt: string;
+    notes: string;
+    items: POFormItem[];
+  }
+  
+  const initialPOForm: POFormData = {
+    supplierId: '',
+    expectedAt: '',
+    notes: '',
+    items: [{ itemId: '', orderedQuantity: 0, unitCost: 0 }]
+  };
+  
+  const [poForm, setPOForm] = useState<POFormData>(initialPOForm);
+  const [poFormErrors, setPOFormErrors] = useState<Partial<Record<keyof POFormData | 'items', string>>>({});
+
+  const poTotal = useMemo(() => {
+    return poForm.items.reduce((sum, item) => {
+      return sum + (item.orderedQuantity * item.unitCost);
+    }, 0);
+  }, [poForm.items]);
+
+  const validatePOForm = (): boolean => {
+    const errors: Partial<Record<keyof POFormData | 'items', string>> = {};
+    
+    if (!poForm.supplierId) errors.supplierId = 'Please select a supplier';
+    
+    const validItems = poForm.items.filter(i => i.itemId && i.orderedQuantity > 0 && i.unitCost >= 0);
+    if (validItems.length === 0) {
+      errors.items = 'At least one valid item is required';
+    }
+    
+    for (let idx = 0; idx < poForm.items.length; idx++) {
+      const item = poForm.items[idx];
+      if (item.itemId && item.orderedQuantity <= 0) {
+        errors.items = `Item ${idx + 1}: Quantity must be greater than 0`;
+        break;
+      }
+    }
+
+    setPOFormErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
+  const handlePOInputChange = (field: keyof POFormData, value: string | number | POFormItem[]) => {
+    setPOForm(prev => ({ ...prev, [field]: value }));
+    if (poFormErrors[field]) {
+      setPOFormErrors(prev => {
+        const next = { ...prev };
+        delete next[field];
+        return next;
+      });
+    }
+  };
+
+  const handlePOItemChange = (index: number, field: keyof POFormItem, value: string | number) => {
+    const newItems = [...poForm.items];
+    newItems[index] = { ...newItems[index], [field]: value };
+    handlePOInputChange('items', newItems);
+  };
+
+  const addPOItem = () => {
+    handlePOInputChange('items', [...poForm.items, { itemId: '', orderedQuantity: 0, unitCost: 0 }]);
+  };
+
+  const removePOItem = (index: number) => {
+    if (poForm.items.length > 1) {
+      const newItems = poForm.items.filter((_, i) => i !== index);
+      handlePOInputChange('items', newItems);
+    }
+  };
+
+  const handleSavePO = useCallback(() => {
+    if (!validatePOForm()) return;
+
+    const selectedSupplier = suppliers.find(s => s.id === poForm.supplierId)!;
+    
+    const poItems: PurchaseOrderItem[] = poForm.items
+      .filter(i => i.itemId && i.orderedQuantity > 0)
+      .map(item => ({
+        itemId: item.itemId,
+        itemName: items.find(i => i.id === item.itemId)?.name || '',
+        orderedQuantity: item.orderedQuantity,
+        receivedQuantity: 0,
+        unitCost: item.unitCost,
+      }));
+
+    const newPO: PurchaseOrder = {
+      id: `po${Date.now()}`,
+      supplierId: poForm.supplierId,
+      supplierName: selectedSupplier.name,
+      status: 'pending',
+      items: poItems,
+      orderedAt: new Date(),
+      expectedAt: poForm.expectedAt ? new Date(poForm.expectedAt) : undefined,
+      total: poTotal,
+      notes: poForm.notes || undefined,
+    };
+
+    setPurchaseOrders(prev => [newPO, ...prev]);
+
+    // Add audit log entry
+    const newAuditEntry: AuditLogEntry = {
+      id: `a${Date.now()}`,
+      action: 'CREATE',
+      entityType: 'PurchaseOrder',
+      entityId: newPO.id,
+      newValue: JSON.stringify({
+        supplier: newPO.supplierName,
+        items: poItems.length,
+        total: newPO.total,
+        status: newPO.status
+      }),
+      userId: 'u1',
+      userName: 'John Manager',
+      createdAt: new Date(),
+    };
+    setAuditLogs(prev => [newAuditEntry, ...prev]);
+
+    // Reset form and close modal
+    setPOForm(initialPOForm);
+    setPOFormErrors({});
+    setShowCreatePOModal(false);
+  }, [poForm, items, suppliers, poTotal]);
+
+  const openCreatePOModal = () => {
+    setPOForm(initialPOForm);
+    setPOFormErrors({});
+    setShowCreatePOModal(true);
+  };
 
   const stats = useMemo(() => {
     const lowStockItems = items.filter(i => i.quantity <= i.reorderLevel);
@@ -562,7 +701,7 @@ export default function InventoryPage() {
     <div className="card">
       <div className="flex justify-between items-center mb-4">
         <h3 className="card-title">Purchase Orders</h3>
-        <button className="btn btn-primary">Create PO</button>
+        <button className="btn btn-primary" onClick={openCreatePOModal}>Create PO</button>
       </div>
       <div className="space-y-4">
         {purchaseOrders.map(po => (
@@ -1127,6 +1266,133 @@ export default function InventoryPage() {
           <div className="modal-footer">
             <button className="btn btn-secondary" onClick={() => setShowMovementModal(false)}>Cancel</button>
             <button className="btn btn-primary" onClick={handleSaveMovement}>Record Movement</button>
+          </div>
+        </div>
+      </div>
+
+      {/* Create Purchase Order Modal */}
+      <div className={`modal-overlay ${showCreatePOModal ? 'active' : ''}`} onClick={() => setShowCreatePOModal(false)}>
+        <div className="modal" style={{ maxWidth: '900px' }} onClick={e => e.stopPropagation()}>
+          <div className="modal-header">
+            <h2 className="modal-title">Create Purchase Order</h2>
+            <button className="modal-close" onClick={() => setShowCreatePOModal(false)}>×</button>
+          </div>
+          <div className="modal-body">
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="form-group">
+                  <label className="form-label">Supplier *</label>
+                  <select
+                    className={`form-input ${poFormErrors.supplierId ? 'error' : ''}`}
+                    value={poForm.supplierId}
+                    onChange={(e) => handlePOInputChange('supplierId', e.target.value)}
+                  >
+                    <option value="">Select supplier</option>
+                    {suppliers.map(s => (
+                      <option key={s.id} value={s.id}>{s.name}</option>
+                    ))}
+                  </select>
+                  {poFormErrors.supplierId && <div className="form-error text-red-600 text-sm mt-1">{poFormErrors.supplierId}</div>}
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Expected Delivery Date</label>
+                  <input
+                    type="date"
+                    className="form-input"
+                    value={poForm.expectedAt}
+                    onChange={(e) => handlePOInputChange('expectedAt', e.target.value)}
+                    min={new Date().toISOString().split('T')[0]}
+                  />
+                </div>
+              </div>
+
+              <div className="form-group">
+                <div className="flex justify-between items-center mb-2">
+                  <label className="form-label m-0">Order Items</label>
+                  <button className="btn btn-sm btn-secondary" onClick={addPOItem}>+ Add Item</button>
+                </div>
+                
+                {poFormErrors.items && <div className="form-error text-red-600 text-sm mb-2">{poFormErrors.items}</div>}
+
+                <div className="space-y-3">
+                  {poForm.items.map((item, index) => (
+                    <div key={index} className="grid grid-cols-12 gap-3 items-end">
+                      <div className="col-span-5">
+                        <select
+                          className="form-input"
+                          value={item.itemId}
+                          onChange={(e) => handlePOItemChange(index, 'itemId', e.target.value)}
+                        >
+                          <option value="">Select item</option>
+                          {items.map(i => (
+                            <option key={i.id} value={i.id}>
+                              {i.name} ({i.quantity} {i.unit} available)
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="col-span-2">
+                        <input
+                          type="number"
+                          className="form-input"
+                          value={item.orderedQuantity}
+                          onChange={(e) => handlePOItemChange(index, 'orderedQuantity', parseFloat(e.target.value) || 0)}
+                          min="0"
+                          step="any"
+                          placeholder="Qty"
+                        />
+                      </div>
+                      <div className="col-span-2">
+                        <input
+                          type="number"
+                          className="form-input"
+                          value={item.unitCost}
+                          onChange={(e) => handlePOItemChange(index, 'unitCost', parseFloat(e.target.value) || 0)}
+                          min="0"
+                          step="0.01"
+                          placeholder="Cost"
+                        />
+                      </div>
+                      <div className="col-span-2 text-right">
+                        <div className="font-medium">{formatCurrency(item.orderedQuantity * item.unitCost)}</div>
+                      </div>
+                      <div className="col-span-1">
+                        <button 
+                          className="btn btn-sm btn-secondary" 
+                          onClick={() => removePOItem(index)}
+                          disabled={poForm.items.length <= 1}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Notes / Reference</label>
+                <textarea
+                  className="form-input"
+                  value={poForm.notes}
+                  onChange={(e) => handlePOInputChange('notes', e.target.value)}
+                  placeholder="Add notes, reference number or special instructions (optional)"
+                  rows={3}
+                />
+              </div>
+
+              <div className="border-t pt-4 flex justify-end">
+                <div className="text-right">
+                  <div className="text-sm text-gray-500">Order Total</div>
+                  <div className="text-2xl font-bold">{formatCurrency(poTotal)}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="modal-footer">
+            <button className="btn btn-secondary" onClick={() => setShowCreatePOModal(false)}>Cancel</button>
+            <button className="btn btn-primary" onClick={handleSavePO}>Create Purchase Order</button>
           </div>
         </div>
       </div>
