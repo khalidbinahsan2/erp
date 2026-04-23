@@ -154,7 +154,36 @@ export default function InventoryPage() {
   const [view, setView] = useState<'list' | 'low-stock' | 'valuation' | 'orders' | 'movements' | 'counts' | 'alerts' | 'forecasting' | 'waste' | 'suppliers' | 'audit' | 'transfers'>('list');
   
   // Advanced Features State
-  const [wasteLogs, setWasteLogs] = useState<WasteLog[]>([]);
+  const [wasteLogs, setWasteLogs] = useState<WasteLog[]>([
+    { id: 'WASTE-001', itemId: '12', itemName: 'Lettuce', quantity: 1.2, cost: 2.40, reason: 'spoilage', recordedBy: 'Sarah Johnson', recordedAt: '2026-02-03T09:15:00Z', notes: 'Wilted from improper storage temperature' },
+    { id: 'WASTE-002', itemId: '14', itemName: 'Lemon', quantity: 8, cost: 3.20, reason: 'expired', recordedBy: 'Marcus Chen', recordedAt: '2026-02-07T14:30:00Z', notes: 'Past best before date, began molding' },
+    { id: 'WASTE-003', itemId: '2', itemName: 'Atlantic Salmon', quantity: 0.5, cost: 9.00, reason: 'overproduction', recordedBy: 'Sarah Johnson', recordedAt: '2026-02-10T21:45:00Z', notes: 'Extra fillet prepared for canceled reservation' },
+    { id: 'WASTE-004', itemId: '13', itemName: 'Tomatoes', quantity: 2.1, cost: 6.30, reason: 'damage', recordedBy: 'Mike Wilson', recordedAt: '2026-02-14T08:20:00Z', notes: 'Damaged during delivery shipment' },
+    { id: 'WASTE-005', itemId: '1', itemName: 'Arborio Rice', quantity: 0.8, cost: 3.60, reason: 'other', recordedBy: 'Marcus Chen', recordedAt: '2026-02-17T11:00:00Z', notes: 'Accidentally spilled during prep' },
+    { id: 'WASTE-006', itemId: '15', itemName: 'Mint Leaves', quantity: 0.1, cost: 1.50, reason: 'spoilage', recordedBy: 'Sarah Johnson', recordedAt: '2026-02-21T16:40:00Z', notes: 'Slimy after 3 days in cooler' },
+    { id: 'WASTE-007', itemId: '4', itemName: 'Parmesan Cheese', quantity: 0.3, cost: 6.60, reason: 'expired', recordedBy: 'Mike Wilson', recordedAt: '2026-02-25T10:15:00Z', notes: 'Mold spots on block edge' },
+    { id: 'WASTE-008', itemId: '12', itemName: 'Lettuce', quantity: 0.9, cost: 1.80, reason: 'overproduction', recordedBy: 'Sarah Johnson', recordedAt: '2026-02-28T22:00:00Z', notes: 'Prepped salad mix unused after slow service' },
+    { id: 'WASTE-009', itemId: '13', itemName: 'Tomatoes', quantity: 1.5, cost: 4.50, reason: 'spoilage', recordedBy: 'Mike Wilson', recordedAt: '2026-03-04T09:30:00Z', notes: 'Soft and bruising' },
+    { id: 'WASTE-010', itemId: '2', itemName: 'Atlantic Salmon', quantity: 0.75, cost: 13.50, reason: 'spoilage', recordedBy: 'Sarah Johnson', recordedAt: '2026-03-08T14:10:00Z', notes: 'Fishy odor detected during prep' },
+    { id: 'WASTE-011', itemId: '14', itemName: 'Lemon', quantity: 12, cost: 4.80, reason: 'expired', recordedBy: 'Marcus Chen', recordedAt: '2026-03-12T07:45:00Z', notes: 'Entire case expired overnight' },
+    { id: 'WASTE-012', itemId: '6', itemName: 'Ramen Noodles', quantity: 2, cost: 7.00, reason: 'damage', recordedBy: 'Mike Wilson', recordedAt: '2026-03-15T13:20:00Z', notes: 'Packaging torn, contents exposed' },
+    { id: 'WASTE-013', itemId: '5', itemName: 'Olive Oil', quantity: 0.5, cost: 4.00, reason: 'other', recordedBy: 'Sarah Johnson', recordedAt: '2026-03-18T16:00:00Z', notes: 'Bottle dropped and broke' },
+    { id: 'WASTE-014', itemId: '12', itemName: 'Lettuce', quantity: 1.8, cost: 3.60, reason: 'spoilage', recordedBy: 'Mike Wilson', recordedAt: '2026-03-22T10:50:00Z', notes: 'Brown edges throughout shipment' },
+    { id: 'WASTE-015', itemId: '3', itemName: 'Wagyu Beef', quantity: 0.25, cost: 11.25, reason: 'overproduction', recordedBy: 'Sarah Johnson', recordedAt: '2026-03-25T21:30:00Z', notes: 'Partial steak returned from table' },
+    { id: 'WASTE-016', itemId: '15', itemName: 'Mint Leaves', quantity: 0.08, cost: 1.20, reason: 'expired', recordedBy: 'Marcus Chen', recordedAt: '2026-03-28T08:15:00Z', notes: 'Beyond use-by date' },
+    { id: 'WASTE-017', itemId: '10', itemName: 'Sparkling Water', quantity: 4, cost: 6.00, reason: 'damage', recordedBy: 'Mike Wilson', recordedAt: '2026-03-30T14:05:00Z', notes: 'Case dropped, bottles cracked' },
+    { id: 'WASTE-018', itemId: '13', itemName: 'Tomatoes', quantity: 0.7, cost: 2.10, reason: 'overproduction', recordedBy: 'Sarah Johnson', recordedAt: '2026-04-02T20:40:00Z', notes: 'Bruschetta prep unused' },
+    { id: 'WASTE-019', itemId: '4', itemName: 'Parmesan Cheese', quantity: 0.2, cost: 4.40, reason: 'spoilage', recordedBy: 'Marcus Chen', recordedAt: '2026-04-05T11:25:00Z', notes: 'Small mold growth found' },
+    { id: 'WASTE-020', itemId: '14', itemName: 'Lemon', quantity: 5, cost: 2.00, reason: 'spoilage', recordedBy: 'Mike Wilson', recordedAt: '2026-04-08T15:30:00Z', notes: 'Softening and mold on stems' },
+    { id: 'WASTE-021', itemId: '2', itemName: 'Atlantic Salmon', quantity: 0.4, cost: 7.20, reason: 'other', recordedBy: 'Sarah Johnson', recordedAt: '2026-04-10T19:15:00Z', notes: 'Overcooked during busy service' },
+    { id: 'WASTE-022', itemId: '8', itemName: 'To-Go Containers', quantity: 15, cost: 11.25, reason: 'damage', recordedBy: 'Mike Wilson', recordedAt: '2026-04-13T09:00:00Z', notes: 'Sleeve crushed in storage' },
+    { id: 'WASTE-023', itemId: '12', itemName: 'Lettuce', quantity: 0.6, cost: 1.20, reason: 'spoilage', recordedBy: 'Marcus Chen', recordedAt: '2026-04-15T12:40:00Z', notes: 'Wilting after 4 days' },
+    { id: 'WASTE-024', itemId: '5', itemName: 'Olive Oil', quantity: 0.25, cost: 2.00, reason: 'other', recordedBy: 'Sarah Johnson', recordedAt: '2026-04-17T14:20:00Z', notes: 'Spilled while transferring to squeeze bottle' },
+    { id: 'WASTE-025', itemId: '13', itemName: 'Tomatoes', quantity: 1.1, cost: 3.30, reason: 'spoilage', recordedBy: 'Mike Wilson', recordedAt: '2026-04-19T10:10:00Z', notes: 'Mold spots on bottom layer' },
+    { id: 'WASTE-026', itemId: '6', itemName: 'Ramen Noodles', quantity: 1.2, cost: 4.20, reason: 'expired', recordedBy: 'Marcus Chen', recordedAt: '2026-04-20T16:30:00Z', notes: 'Best before date passed' },
+    { id: 'WASTE-027', itemId: '15', itemName: 'Mint Leaves', quantity: 0.05, cost: 0.75, reason: 'spoilage', recordedBy: 'Sarah Johnson', recordedAt: '2026-04-21T08:50:00Z', notes: 'Wilting and browning' },
+    { id: 'WASTE-028', itemId: '9', itemName: 'House Red Wine', quantity: 2, cost: 16.00, reason: 'damage', recordedBy: 'Mike Wilson', recordedAt: '2026-04-22T18:45:00Z', notes: 'Bottle dropped while restocking bar' },
+  ]);
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([
     { id: 'AUDIT-001', itemId: '1', itemName: 'Arborio Rice', action: 'stock received', previousValue: 10, newValue: 30, userId: '2', userName: 'Sarah Johnson', timestamp: '2026-01-15T08:30:00Z', ipAddress: '192.168.1.101' },
     { id: 'AUDIT-002', itemId: '2', itemName: 'Atlantic Salmon', action: 'stock used', previousValue: 12, newValue: 9, userId: '2', userName: 'Sarah Johnson', timestamp: '2026-01-17T14:45:00Z', ipAddress: '192.168.1.101' },
