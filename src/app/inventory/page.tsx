@@ -612,6 +612,56 @@ export default function InventoryPage() {
     return { totalItems: items.length, lowStockItems: lowStockItems.length, totalValue, totalWasteCost, pendingPOs };
   }, [items, wasteRecords, purchaseOrders]);
 
+  // Live calculations for receive items modal
+  const receiveCalculations = useMemo(() => {
+    if (!selectedPO || !receiveItems.length) return null;
+
+    // Calculate current receive values
+    const receiveSubtotal = receiveItems.reduce((sum, item) => sum + (item.quantity * item.cost), 0);
+    const totalOrderedValue = selectedPO.subtotal;
+    
+    // Proportional calculations based on what's being received now
+    const receiveRatio = totalOrderedValue > 0 ? receiveSubtotal / totalOrderedValue : 0;
+    const proportionalShipping = selectedPO.shippingCost * receiveRatio;
+    const proportionalTax = selectedPO.taxAmount * receiveRatio;
+    const proportionalDiscount = selectedPO.discountAmount * receiveRatio;
+    
+    const receiveTotal = receiveSubtotal + proportionalShipping + proportionalTax - proportionalDiscount;
+    
+    // What will be returned and remaining
+    const returnAmount = selectedPO.total - receiveTotal;
+    const remainingBalance = receiveTotal;
+
+    // Per item received vs ordered
+    const itemsWithStatus = receiveItems.map(item => {
+      const orderItem = selectedPO.items.find(i => i.itemId === item.itemId);
+      const maxQty = orderItem ? orderItem.orderedQuantity - orderItem.receivedQuantity : 0;
+      const ordered = orderItem?.orderedQuantity || 0;
+      const previouslyReceived = orderItem?.receivedQuantity || 0;
+      
+      return {
+        ...item,
+        ordered,
+        previouslyReceived,
+        maxQty,
+        isPartial: item.quantity > 0 && item.quantity < maxQty,
+        itemTotal: item.quantity * item.cost
+      };
+    });
+
+    return {
+      itemsWithStatus,
+      receiveSubtotal,
+      proportionalShipping,
+      proportionalTax,
+      proportionalDiscount,
+      receiveTotal,
+      returnAmount: Math.max(0, returnAmount),
+      remainingBalance,
+      receiveRatio
+    };
+  }, [selectedPO, receiveItems]);
+
   const validateForm = (): boolean => {
     const errors: Partial<Record<keyof NewInventoryItem, string>> = {};
     
@@ -1909,8 +1959,7 @@ export default function InventoryPage() {
               <thead>
                 <tr style={{ borderBottom: '1px solid #e5e7eb' }}>
                   <th style={{ textAlign: 'left', padding: '12px 8px' }}>Item</th>
-                  <th style={{ textAlign: 'right', padding: '12px 8px' }}>Ordered</th>
-                  <th style={{ textAlign: 'right', padding: '12px 8px' }}>Remaining</th>
+                  <th style={{ textAlign: 'right', padding: '12px 8px' }}>Order Status</th>
                   <th style={{ textAlign: 'right', padding: '12px 8px' }}>Receive Qty</th>
                   <th style={{ textAlign: 'right', padding: '12px 8px' }}>Actual Cost</th>
                   <th style={{ padding: '12px 8px' }}>Batch #</th>
@@ -1918,21 +1967,30 @@ export default function InventoryPage() {
                 </tr>
               </thead>
               <tbody>
-                {receiveItems.map(item => {
+                {receiveCalculations?.itemsWithStatus.map(item => {
                   const orderItem = selectedPO?.items.find(i => i.itemId === item.itemId);
-                  const maxQty = orderItem ? orderItem.orderedQuantity - orderItem.receivedQuantity : 0;
                   return (
-                    <tr key={item.itemId} style={{ borderBottom: '1px solid #f3f4f6' }}>
-                      <td style={{ padding: '12px 8px' }}>{orderItem?.itemName}</td>
-                      <td style={{ textAlign: 'right', padding: '12px 8px' }}>{orderItem?.orderedQuantity}</td>
-                      <td style={{ textAlign: 'right', padding: '12px 8px' }}>{maxQty}</td>
+                    <tr key={item.itemId} style={{ borderBottom: '1px solid #f3f4f6', backgroundColor: item.quantity > 0 ? '#f0fdf4' : 'transparent' }}>
+                      <td style={{ padding: '12px 8px' }}>
+                        <div>{orderItem?.itemName}</div>
+                        {item.quantity > 0 && item.quantity < item.maxQty && (
+                          <div style={{ fontSize: '11px', color: '#f59e0b', marginTop: '2px' }}>
+                            ⚠️ Partial receipt
+                          </div>
+                        )}
+                      </td>
+                      <td style={{ textAlign: 'right', padding: '12px 8px' }}>
+                        <div style={{ fontSize: '12px', color: '#9ca3af', textDecoration: 'line-through' }}>Ordered: {item.ordered}</div>
+                        <div style={{ fontSize: '12px', color: '#6b7280' }}>Prev Received: {item.previouslyReceived}</div>
+                        <div style={{ fontWeight: 600, marginTop: '2px' }}>Available: {item.maxQty}</div>
+                      </td>
                       <td style={{ textAlign: 'right', width: '100px', padding: '12px 8px' }}>
                         <input 
                           type="number" 
                           className="form-input" 
                           style={{ textAlign: 'right', margin: 0 }}
                           min={0} 
-                          max={maxQty}
+                          max={item.maxQty}
                           value={item.quantity} 
                           onChange={e => updateReceiveQuantity(item.itemId, parseInt(e.target.value) || 0)} 
                         />
@@ -1976,6 +2034,58 @@ export default function InventoryPage() {
             <div style={{ marginTop: '16px', padding: '12px', backgroundColor: 'var(--bg-subtle)', borderRadius: '8px', fontSize: '13px', color: 'var(--text-secondary)' }}>
               💡 <strong>Tip:</strong> You may receive partial quantities. Any remaining items will stay on this order for future receipt.
             </div>
+
+            {/* Live Financial Summary */}
+            {receiveCalculations && (
+              <div style={{ marginTop: '24px', border: '1px solid #e5e7eb', borderRadius: '8px', overflow: 'hidden' }}>
+                <div style={{ backgroundColor: '#f8fafc', padding: '12px 16px', borderBottom: '1px solid #e5e7eb', fontWeight: 600 }}>
+                  📊 Receipt Summary
+                </div>
+                <div style={{ padding: '16px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
+                  {/* Left Column - Current Receipt */}
+                  <div>
+                    <h4 style={{ fontWeight: 600, marginBottom: '12px', fontSize: '14px' }}>This Receipt</h4>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', fontSize: '14px' }}>
+                      <span style={{ color: '#6b7280' }}>Items Subtotal</span>
+                      <span style={{ fontWeight: 500 }}>{formatCurrency(receiveCalculations.receiveSubtotal)}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', fontSize: '14px' }}>
+                      <span style={{ color: '#6b7280' }}>Shipping ({Math.round(receiveCalculations.receiveRatio * 100)}%)</span>
+                      <span>{formatCurrency(receiveCalculations.proportionalShipping)}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', fontSize: '14px' }}>
+                      <span style={{ color: '#6b7280' }}>Tax ({Math.round(receiveCalculations.receiveRatio * 100)}%)</span>
+                      <span>{formatCurrency(receiveCalculations.proportionalTax)}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', fontSize: '14px' }}>
+                      <span style={{ color: '#6b7280' }}>Discount ({Math.round(receiveCalculations.receiveRatio * 100)}%)</span>
+                      <span style={{ color: '#dc2626' }}>-{formatCurrency(receiveCalculations.proportionalDiscount)}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', marginTop: '4px', borderTop: '2px solid #e5e7eb', fontWeight: 600, fontSize: '15px' }}>
+                      <span>Total Received</span>
+                      <span style={{ color: '#16a34a' }}>{formatCurrency(receiveCalculations.receiveTotal)}</span>
+                    </div>
+                  </div>
+
+                  {/* Right Column - Order Status */}
+                  <div>
+                    <h4 style={{ fontWeight: 600, marginBottom: '12px', fontSize: '14px' }}>Order Adjustments</h4>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', fontSize: '14px' }}>
+                      <span style={{ color: '#6b7280' }}>Original Order Total</span>
+                      <span>{formatCurrency(selectedPO?.total || 0)}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', fontSize: '14px' }}>
+                      <span style={{ color: '#6b7280' }}>⬅️ Return from Supplier</span>
+                      <span style={{ color: '#f59e0b', fontWeight: 500 }}>{formatCurrency(receiveCalculations.returnAmount)}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', marginTop: '4px', borderTop: '2px solid #e5e7eb', fontWeight: 600, fontSize: '15px' }}>
+                      <span>Remaining Order Balance</span>
+                      <span style={{ color: '#2563eb' }}>{formatCurrency(receiveCalculations.remainingBalance)}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
           <div className="modal-footer">
             <button className="btn btn-secondary" onClick={() => setShowReceiveModal(false)}>Cancel</button>

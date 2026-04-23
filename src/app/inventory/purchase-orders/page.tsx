@@ -25,6 +25,8 @@ interface PurchaseOrderItem {
   expiryDate?: string;
   returned?: number;
   returnReason?: string;
+  orderedQuantity?: number;
+  receivedQuantity?: number;
 }
 
 interface PurchaseOrder {
@@ -656,6 +658,56 @@ function usePurchaseOrders() {
   const cancelledTotal = useMemo(() => 
     purchaseOrders.filter(o => o.status === 'cancelled').reduce((sum, o) => sum + o.total, 0), 
   [purchaseOrders]);
+
+  // Live calculations for receive items modal
+  const receiveCalculations = useMemo(() => {
+    if (!selectedOrder || !receiveItems.length) return null;
+
+    // Calculate current receive values
+    const receiveSubtotal = receiveItems.reduce((sum, item) => sum + (item.quantity * item.cost), 0);
+    const totalOrderedValue = selectedOrder.subtotal ?? 0;
+    
+    // Proportional calculations based on what's being received now
+    const receiveRatio = totalOrderedValue > 0 ? receiveSubtotal / totalOrderedValue : 0;
+    const proportionalShipping = (selectedOrder.shippingCost ?? 0) * receiveRatio;
+    const proportionalTax = (selectedOrder.taxAmount ?? 0) * receiveRatio;
+    const proportionalDiscount = (selectedOrder.discountAmount ?? 0) * receiveRatio;
+    
+    const receiveTotal = receiveSubtotal + proportionalShipping + proportionalTax - proportionalDiscount;
+    
+    // What will be returned and remaining
+    const returnAmount = selectedOrder.total - receiveTotal;
+    const remainingBalance = receiveTotal;
+
+    // Per item received vs ordered
+    const itemsWithStatus = receiveItems.map(item => {
+      const orderItem = selectedOrder.items.find(i => i.itemId === item.itemId);
+      const maxQty = orderItem ? (orderItem.orderedQuantity ?? orderItem.quantity) - (orderItem.receivedQuantity ?? orderItem.received ?? 0) : 0;
+      const ordered = orderItem?.orderedQuantity ?? orderItem?.quantity ?? 0;
+      const previouslyReceived = orderItem?.receivedQuantity ?? orderItem?.received ?? 0;
+      
+      return {
+        ...item,
+        ordered,
+        previouslyReceived,
+        maxQty,
+        isPartial: item.quantity > 0 && item.quantity < maxQty,
+        itemTotal: item.quantity * item.cost
+      };
+    });
+
+    return {
+      itemsWithStatus,
+      receiveSubtotal,
+      proportionalShipping,
+      proportionalTax,
+      proportionalDiscount,
+      receiveTotal,
+      returnAmount: Math.max(0, returnAmount),
+      remainingBalance,
+      receiveRatio
+    };
+  }, [selectedOrder, receiveItems]);
 
   return {
     // State
