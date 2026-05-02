@@ -21,6 +21,7 @@ const navItems = [
   { href: '/reports/item-analytics', icon: '📊', label: 'Item Analytics', sub: true },
   { href: '/reports/inventory-analytics', icon: '📦', label: 'Inventory Analytics', sub: true },
   { href: '/reports/profits', icon: '💵', label: 'Profits', sub: true },
+  { href: '/reports/analytics', icon: '📊', label: 'Analytics', sub: true },
   { href: '/settings', icon: '⚙️', label: 'Settings' },
 ];
 
