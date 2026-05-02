@@ -3,9 +3,9 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import { OrderItem } from '@/types';
 
-type KDSStatus = 'received' | 'preparing' | 'cooking' | 'plating' | 'ready' | 'served';
-type KDSPriority = 'high' | 'medium' | 'low';
-type OrderType = 'dine-in' | 'online' | 'takeout';
+type KDSStatus = 'received' | 'preparing' | 'cooking' | 'plating' | 'ready' | 'served' | 'held' | 'cancelled';
+type KDSPriority = 'critical' | 'high' | 'medium' | 'low';
+type OrderType = 'dine-in' | 'online' | 'takeout' | 'drive_thru';
 
 interface KDSOrder {
   id: string;
@@ -21,6 +21,11 @@ interface KDSOrder {
   actualPrepTime?: number;
   assignedChef?: string;
   rushOrder?: boolean;
+  holdReason?: string;
+  fireTime?: Date; // When to start cooking for timed preparation
+  tickets: number; // How many of this item to fire
+  modifiers: string[]; // Special modifiers like "no onion", "extra crispy"
+  allergenAlerts: string[]; // Allergen information
 }
 
 interface Chef {
@@ -60,69 +65,92 @@ const smartOvens: SmartOven[] = [
 ];
 
 const initialOrders: KDSOrder[] = [
-  {
-    id: 'KDS-001',
-    orderType: 'dine-in',
-    tableNumber: 5,
-    items: [{ menuItemId: '1', name: 'Truffle Risotto', quantity: 2, price: 28.00 }],
-    total: 56.00,
-    status: 'received',
-    createdAt: new Date(),
-    priority: 'high',
-    estimatedPrepTime: 25,
-    rushOrder: true,
-  },
-  {
-    id: 'KDS-002',
-    orderType: 'online',
-    items: [{ menuItemId: '4', name: 'Wagyu Burger', quantity: 1, price: 26.00 }, { menuItemId: '3', name: 'Caesar Salad', quantity: 1, price: 14.00 }],
-    total: 40.00,
-    status: 'received',
-    createdAt: new Date(),
-    priority: 'medium',
-    estimatedPrepTime: 18,
-  },
-  {
-    id: 'KDS-003',
-    orderType: 'takeout',
-    items: [{ menuItemId: '6', name: 'Spicy Ramen', quantity: 3, price: 22.00 }],
-    total: 66.00,
-    status: 'preparing',
-    createdAt: new Date(),
-    priority: 'low',
-    estimatedPrepTime: 15,
-    assignedChef: 'Sarah Johnson',
-  },
-  {
-    id: 'KDS-004',
-    orderType: 'dine-in',
-    tableNumber: 12,
-    items: [{ menuItemId: '2', name: 'Grilled Salmon', quantity: 1, price: 32.00 }],
-    total: 32.00,
-    status: 'cooking',
-    createdAt: new Date(),
-    priority: 'high',
-    estimatedPrepTime: 20,
-    assignedChef: 'David Martinez',
-  },
-  {
-    id: 'KDS-005',
-    orderType: 'online',
-    items: [{ menuItemId: '9', name: 'Vegan Buddha Bowl', quantity: 2, price: 19.00 }],
-    total: 38.00,
-    status: 'plating',
-    createdAt: new Date(),
-    priority: 'medium',
-    estimatedPrepTime: 15,
-    assignedChef: 'Emma Chen',
-  },
-];
+    {
+      id: 'KDS-001',
+      orderType: 'dine-in',
+      tableNumber: 5,
+      items: [{ menuItemId: '1', name: 'Truffle Risotto', quantity: 2, price: 28.00 }],
+      total: 56.00,
+      status: 'received',
+      createdAt: new Date(),
+      priority: 'high',
+      estimatedPrepTime: 25,
+      rushOrder: true,
+      tickets: 2,
+      modifiers: ['extra truffle'],
+      allergenAlerts: ['dairy']
+    },
+    {
+      id: 'KDS-002',
+      orderType: 'online',
+      items: [{ menuItemId: '4', name: 'Wagyu Burger', quantity: 1, price: 26.00 }, { menuItemId: '3', name: 'Caesar Salad', quantity: 1, price: 14.00 }],
+      total: 40.00,
+      status: 'received',
+      createdAt: new Date(),
+      priority: 'medium',
+      estimatedPrepTime: 18,
+      tickets: 1,
+      modifiers: ['no onion', 'well done'],
+      allergenAlerts: ['gluten', 'dairy']
+    },
+    {
+      id: 'KDS-003',
+      orderType: 'takeout',
+      items: [{ menuItemId: '6', name: 'Spicy Ramen', quantity: 3, price: 22.00 }],
+      total: 66.00,
+      status: 'preparing',
+      createdAt: new Date(),
+      priority: 'low',
+      estimatedPrepTime: 15,
+      assignedChef: 'Sarah Johnson',
+      tickets: 3,
+      modifiers: ['extra spicy', 'no cilantro'],
+      allergenAlerts: ['gluten']
+    },
+    {
+      id: 'KDS-004',
+      orderType: 'dine-in',
+      tableNumber: 12,
+      items: [{ menuItemId: '2', name: 'Grilled Salmon', quantity: 1, price: 32.00 }],
+      total: 32.00,
+      status: 'cooking',
+      createdAt: new Date(),
+      priority: 'high',
+      estimatedPrepTime: 20,
+      assignedChef: 'David Martinez',
+      tickets: 1,
+      modifiers: ['lemon butter'],
+      allergenAlerts: ['fish']
+    },
+    {
+      id: 'KDS-005',
+      orderType: 'online',
+      items: [{ menuItemId: '9', name: 'Vegan Buddha Bowl', quantity: 2, price: 19.00 }],
+      total: 38.00,
+      status: 'plating',
+      createdAt: new Date(),
+      priority: 'medium',
+      estimatedPrepTime: 15,
+      assignedChef: 'Emma Chen',
+      tickets: 2,
+      modifiers: ['extra avocado', 'gluten-free'],
+      allergenAlerts: ['none']
+    },
+  ];
 
 const priorityLabels = {
-  high: 'High Priority',
-  medium: 'Medium Priority',
-  low: 'Low Priority',
-};
+    critical: 'Critical',
+    high: 'High Priority',
+    medium: 'Medium Priority',
+    low: 'Low Priority',
+  };
+
+const priorityColors = {
+    critical: 'var(--destructive)',
+    high: 'var(--primary)',
+    medium: 'var(--warning)',
+    low: 'var(--secondary)',
+  };
 
 export default function KDSPage() {
   const [orders, setOrders] = useState<KDSOrder[]>(initialOrders);
@@ -168,19 +196,19 @@ export default function KDSPage() {
     return () => clearInterval(interval);
   }, [chefsState]);
 
-  const sortedOrders = useMemo(() => {
-    const priorityOrder = { high: 0, medium: 1, low: 2 };
-    return [...orders]
-      .filter(order => filter === 'all' || order.status === filter)
-      .sort((a, b) => {
-        if (a.rushOrder && !b.rushOrder) return -1;
-        if (!a.rushOrder && b.rushOrder) return 1;
-        if (priorityOrder[a.priority] !== priorityOrder[b.priority]) {
-          return priorityOrder[a.priority] - priorityOrder[b.priority];
-        }
-        return a.createdAt.getTime() - b.createdAt.getTime();
-      });
-  }, [orders, filter]);
+   const sortedOrders = useMemo(() => {
+     const priorityOrder = { critical: 0, high: 1, medium: 2, low: 3 };
+     return [...orders]
+       .filter(order => filter === 'all' || order.status === filter)
+       .sort((a, b) => {
+         if (a.rushOrder && !b.rushOrder) return -1;
+         if (!a.rushOrder && b.rushOrder) return 1;
+         if (priorityOrder[a.priority] !== priorityOrder[b.priority]) {
+           return priorityOrder[a.priority] - priorityOrder[b.priority];
+         }
+         return a.createdAt.getTime() - b.createdAt.getTime();
+       });
+   }, [orders, filter]);
 
   const updateStatus = useCallback((orderId: string, newStatus: KDSOrder['status']) => {
     setOrders(prevOrders =>
@@ -191,6 +219,48 @@ export default function KDSPage() {
   const assignChef = useCallback((orderId: string, chefName: string) => {
     setOrders(prevOrders =>
       prevOrders.map(o => (o.id === orderId ? { ...o, assignedChef: chefName } : o))
+    );
+  }, []);
+
+  const fireTickets = useCallback((orderId: string, tickets: number) => {
+    setOrders(prevOrders =>
+      prevOrders.map(o => 
+        o.id === orderId 
+          ? { 
+              ...o, 
+              tickets: o.tickets - tickets,
+              status: o.tickets - tickets <= 0 ? 'ready' : o.status
+            } 
+          : o
+      )
+    );
+  }, []);
+
+  const holdOrder = useCallback((orderId: string, reason: string) => {
+    setOrders(prevOrders =>
+      prevOrders.map(o => 
+        o.id === orderId 
+          ? { 
+              ...o, 
+              status: 'held',
+              holdReason: reason
+            } 
+          : o
+      )
+    );
+  }, []);
+
+  const releaseHold = useCallback((orderId: string) => {
+    setOrders(prevOrders =>
+      prevOrders.map(o => 
+        o.id === orderId 
+          ? { 
+              ...o, 
+              status: 'received',
+              holdReason: undefined
+            } 
+          : o
+      )
     );
   }, []);
 
@@ -320,42 +390,104 @@ export default function KDSPage() {
                 </div>
               )}
 
-              {order.specialInstructions && (
-                <div style={{ padding: '8px', background: 'rgba(255, 107, 53, 0.1)', borderRadius: '6px', marginBottom: '12px', fontSize: '12px' }}>
-                  <strong>Note:</strong> {order.specialInstructions}
-                </div>
-              )}
+               {order.specialInstructions && (
+                 <div style={{ padding: '8px', background: 'rgba(255, 107, 53, 0.1)', borderRadius: '6px', marginBottom: '12px', fontSize: '12px' }}>
+                   <strong>Note:</strong> {order.specialInstructions}
+                 </div>
+               )}
+               
+               {order.allergenAlerts && order.allergenAlerts.length > 0 && (
+                 <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
+                   {order.allergenAlerts.map((alert, index) => (
+                     <span key={index} style={{ 
+                       background: alert.toLowerCase() === 'none' ? 'var(--success)' : 'var(--danger)', 
+                       color: 'white', 
+                       padding: '2px 8px', 
+                       borderRadius: '12px', 
+                       fontSize: '11px',
+                       fontWeight: '500'
+                     }}>
+                       {alert.toUpperCase()}
+                     </span>
+                   ))}
+                 </div>
+               )}
 
-              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                {order.status === 'received' && (
-                  <button className="btn btn-primary btn-sm" onClick={() => { updateStatus(order.id, 'preparing'); assignChef(order.id, chefsState[0].name); }}>
-                    Start
-                  </button>
-                )}
-                {order.status === 'preparing' && (
-                  <button className="btn btn-primary btn-sm" onClick={() => updateStatus(order.id, 'cooking')}>
-                    Cooking
-                  </button>
-                )}
-                {order.status === 'cooking' && (
-                  <button className="btn btn-primary btn-sm" onClick={() => updateStatus(order.id, 'plating')}>
-                    Plate
-                  </button>
-                )}
-                {order.status === 'plating' && (
-                  <button className="btn btn-primary btn-sm" onClick={() => updateStatus(order.id, 'ready')}>
-                    Ready
-                  </button>
-                )}
-                {order.status === 'ready' && (
-                  <button className="btn btn-secondary btn-sm" onClick={() => updateStatus(order.id, 'served')}>
-                    Served
-                  </button>
-                )}
-                <span className={`badge ${order.priority === 'high' ? 'badge-cancelled' : order.priority === 'medium' ? 'badge-pending' : 'badge-available'}`}>
-                  {priorityLabels[order.priority]}
-                </span>
-              </div>
+               <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                 {order.status === 'received' && (
+                   <>
+                     <button className="btn btn-primary btn-sm" onClick={() => { updateStatus(order.id, 'preparing'); assignChef(order.id, chefsState[0].name); }}>
+                       Start
+                     </button>
+                     <button className="btn btn-secondary btn-sm" onClick={() => holdOrder(order.id, 'Waiting for modification')}>
+                       Hold
+                     </button>
+                   </>
+                 )}
+                 {order.status === 'preparing' && (
+                   <>
+                     <button className="btn btn-primary btn-sm" onClick={() => updateStatus(order.id, 'cooking')}>
+                       Cooking
+                     </button>
+                     <button className="btn btn-secondary btn-sm" onClick={() => holdOrder(order.id, 'Waiting for modification')}>
+                       Hold
+                     </button>
+                   </>
+                 )}
+                 {order.status === 'cooking' && (
+                   <>
+                     <button className="btn btn-primary btn-sm" onClick={() => updateStatus(order.id, 'plating')}>
+                       Plate
+                     </button>
+                     <button className="btn btn-secondary btn-sm" onClick={() => fireTickets(order.id, 1)}>
+                       Fire One
+                     </button>
+                     <button className="btn btn-secondary btn-sm" onClick={() => holdOrder(order.id, 'Waiting for modification')}>
+                       Hold
+                     </button>
+                   </>
+                 )}
+                 {order.status === 'plating' && (
+                   <>
+                     <button className="btn btn-primary btn-sm" onClick={() => updateStatus(order.id, 'ready')}>
+                       Ready
+                     </button>
+                     <button className="btn btn-secondary btn-sm" onClick={() => holdOrder(order.id, 'Waiting for modification')}>
+                       Hold
+                     </button>
+                   </>
+                 )}
+                 {order.status === 'ready' && (
+                   <>
+                     <button className="btn btn-secondary btn-sm" onClick={() => updateStatus(order.id, 'served')}>
+                       Served
+                     </button>
+                     <button className="btn btn-secondary btn-sm" onClick={() => releaseHold(order.id)}>
+                       Release Hold
+                     </button>
+                   </>
+                 )}
+                 {order.status === 'held' && (
+                   <>
+                     <button className="btn btn-warning btn-sm" onClick={() => releaseHold(order.id)}>
+                       Release Hold
+                     </button>
+                     <button className="btn btn-secondary btn-sm" onClick={() => updateStatus(order.id, 'cancelled')}>
+                       Cancel
+                     </button>
+                   </>
+                 )}
+                 <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                   <span className="badge" style={{ backgroundColor: priorityColors[order.priority], color: 'white' }}>
+                     {priorityLabels[order.priority]}
+                   </span>
+                   {order.holdReason && (
+                     <span style={{ fontSize: '12px', marginLeft: '8px', color: 'var(--warning)' }}>
+                       ⚠️ {order.holdReason}
+                     </span>
+                   )}
+                 </div>
+               </div>
             </div>
           </div>
         ))}
