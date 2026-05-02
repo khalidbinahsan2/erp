@@ -157,6 +157,56 @@ export default function KDSPage() {
   const [chefsState, setChefsState] = useState<Chef[]>(chefs);
   const [ovens, setOvens] = useState<SmartOven[]>(smartOvens);
   const [filter, setFilter] = useState<'all' | KDSOrder['status']>('all');
+  
+  // Group items across orders for efficient preparation
+  const groupedItems = useMemo(() => {
+    const itemGroups: Record<string, {
+      menuItemId: string;
+      name: string;
+      totalQuantity: number;
+      orders: Array<{
+        orderId: string;
+        quantity: number;
+        modifiers: string[];
+        allergenAlerts: string[];
+        specialInstructions?: string;
+      }>;
+    }> = {};
+    
+    // Only consider orders that are received or preparing (not yet completed)
+    const activeOrders = orders.filter(order => 
+      order.status === 'received' || 
+      order.status === 'preparing' || 
+      order.status === 'cooking' ||
+      order.status === 'plating' ||
+      order.status === 'ready' ||
+      order.status === 'held'
+    );
+    
+    activeOrders.forEach(order => {
+      order.items.forEach(item => {
+        if (!itemGroups[item.menuItemId]) {
+          itemGroups[item.menuItemId] = {
+            menuItemId: item.menuItemId,
+            name: item.name,
+            totalQuantity: 0,
+            orders: []
+          };
+        }
+        
+        itemGroups[item.menuItemId].totalQuantity += item.quantity;
+        itemGroups[item.menuItemId].orders.push({
+          orderId: order.id,
+          quantity: item.quantity,
+          modifiers: order.modifiers,
+          allergenAlerts: order.allergenAlerts,
+          specialInstructions: order.specialInstructions
+        });
+      });
+    });
+    
+    return Object.values(itemGroups);
+  }, [orders]);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -328,32 +378,122 @@ export default function KDSPage() {
           </div>
         </div>
 
-        <div className="data-card">
-          <div className="data-card-header">
-            <h3 className="data-card-title">Smart Ovens</h3>
-          </div>
-          <div style={{ padding: '16px' }}>
-            {ovens.map(oven => (
-              <div key={oven.id} style={{ marginBottom: '16px', padding: '12px', background: 'var(--bg-elevated)', borderRadius: '8px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                  <span style={{ fontWeight: '600' }}>{oven.name}</span>
-                  <span className={`badge ${oven.status === 'cooking' ? 'badge-in_progress' : oven.status === 'preheating' ? 'badge-pending' : 'badge-completed'}`}>
-                    {oven.status}
-                  </span>
-                </div>
-                <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px' }}>
-                  {oven.recipe} • {oven.timeRemaining > 0 ? `${oven.timeRemaining}m remaining` : 'Complete'}
-                </div>
-                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                  <div style={{ flex: 1, height: '6px', background: 'var(--bg-card)', borderRadius: '3px', overflow: 'hidden' }}>
-                    <div style={{ width: `${oven.cookingProgress}%`, height: '100%', background: 'var(--primary)', transition: 'width 300ms ease' }} />
-                  </div>
-                  <span className="mono" style={{ fontSize: '12px' }}>{oven.temperature}°F</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
+         <div className="data-card">
+           <div className="data-card-header">
+             <h3 className="data-card-title">Smart Ovens</h3>
+           </div>
+           <div style={{ padding: '16px' }}>
+             {ovens.map(oven => (
+               <div key={oven.id} style={{ marginBottom: '16px', padding: '12px', background: 'var(--bg-elevated)', borderRadius: '8px' }}>
+                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                   <span style={{ fontWeight: '600' }}>{oven.name}</span>
+                   <span className={`badge ${oven.status === 'cooking' ? 'badge-in_progress' : oven.status === 'preheating' ? 'badge-pending' : 'badge-completed'}`}>
+                     {oven.status}
+                   </span>
+                 </div>
+                 <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px' }}>
+                   {oven.recipe} • {oven.timeRemaining > 0 ? `${oven.timeRemaining}m remaining` : 'Complete'}
+                 </div>
+                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                   <div style={{ flex: 1, height: '6px', background: 'var(--bg-card)', borderRadius: '3px', overflow: 'hidden' }}>
+                     <div style={{ width: `${oven.cookingProgress}%`, height: '100%', background: 'var(--primary)', transition: 'width 300ms ease' }} />
+                   </div>
+                   <span className="mono" style={{ fontSize: '12px' }}>{oven.temperature}°F</span>
+                 </div>
+               </div>
+             ))}
+           </div>
+         </div>
+
+         {/* Grouped Items for Efficient Preparation */}
+         <div className="data-card">
+           <div className="data-card-header">
+             <h3 className="data-card-title">Preparation Queue (Grouped Items)</h3>
+           </div>
+           <div style={{ padding: '16px' }}>
+             {groupedItems.length > 0 ? (
+               <div style={{ maxHeight: '400px', overflowY: 'auto' }}>
+                 {groupedItems.map((group, index) => (
+                   <div key={group.menuItemId} style={{ border: '1px solid var(--border)', borderRadius: '8px', marginBottom: '16px', padding: '16px' }}>
+                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                       <div>
+                         <div style={{ fontSize: '20px', fontWeight: '600' }}>{group.name}</div>
+                         <div style={{ fontSize: '14px', color: 'var(--text-muted)' }}>Item ID: {group.menuItemId}</div>
+                       </div>
+                       <div style={{ textAlign: 'right' }}>
+                         <div style={{ fontSize: '24px', fontWeight: '600', color: 'var(--primary)' }}>{group.totalQuantity}</div>
+                         <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Total to Prepare</div>
+                       </div>
+                     </div>
+                     <div style={{ backgroundColor: 'var(--bg-elevated)', borderRadius: '6px', padding: '12px' }}>
+                       <div style={{ fontWeight: '600', marginBottom: '8px' }}>Orders requiring this item:</div>
+                       {group.orders.map((order, idx) => (
+                         <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', marginBottom: '4px', padding: '4px 0', borderBottom: idx < group.orders.length - 1 ? '1px solid var(--border)' : 'none' }}>
+                           <span>Order #{order.orderId.substring(0, 8)}:</span>
+                           <span className="mono">{order.quantity}</span>
+                           {order.modifiers.length > 0 && (
+                             <span style={{ fontSize: '12px', color: 'var(--warning)' }}>
+                               ({order.modifiers.join(', ')})
+                             </span>
+                           )}
+                           {order.allergenAlerts.length > 0 && (
+                             <span style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                               {order.allergenAlerts.map((alert, alertIdx) => (
+                                 <span key={alertIdx} style={{ 
+                                   background: alert.toLowerCase() === 'none' ? 'var(--success)' : 'var(--danger)', 
+                                   color: 'white', 
+                                   padding: '2px 6px', 
+                                   borderRadius: '10px', 
+                                   fontSize: '10px',
+                                   fontWeight: '500'
+                                 }}>
+                                   {alert.toUpperCase()}
+                                 </span>
+                               ))}
+                             </span>
+                           )}
+                         </div>
+                       ))}
+                     </div>
+                     <div style={{ marginTop: '12px', textAlign: 'right' }}>
+                       <button className="btn btn-outline" onClick={() => {
+                         // Fire all items for this group - distribute to orders
+                         setOrders(prevOrders => {
+                           let updatedOrders = [...prevOrders];
+                           group.orders.forEach(orderGroup => {
+                             const orderIndex = updatedOrders.findIndex(o => o.id === orderGroup.orderId);
+                             if (orderIndex !== -1) {
+                               const order = updatedOrders[orderIndex];
+                               const itemIndex = order.items.findIndex(item => item.menuItemId === group.menuItemId);
+                               if (itemIndex !== -1) {
+                                 const updatedItems = [...order.items];
+                                 const item = updatedItems[itemIndex];
+                                 const newQuantity = Math.max(0, item.quantity - orderGroup.quantity);
+                                 if (newQuantity === 0) {
+                                   updatedItems.splice(itemIndex, 1);
+                                 } else {
+                                   updatedItems[itemIndex] = { ...item, quantity: newQuantity };
+                                 }
+                                 updatedOrders[orderIndex] = { ...order, items: updatedItems };
+                               }
+                             }
+                           });
+                           return updatedOrders;
+                         });
+                       }}>
+                       Fire All ({group.totalQuantity})
+                     </button>
+                   </div>
+                 </div>
+               ))}
+               </div>
+             ) : (
+               <div style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)' }}>
+                 No items to prepare
+               </div>
+             )}
+           </div>
+         </div>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '24px' }}>
