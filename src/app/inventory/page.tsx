@@ -277,6 +277,27 @@ export default function InventoryPage() {
   const [deliveryNotes, setDeliveryNotes] = useState('');
   const [receivedBy, setReceivedBy] = useState('');
   const [showWasteModal, setShowWasteModal] = useState(false);
+  const [selectedCount, setSelectedCount] = useState<InventoryCount | null>(null);
+  const [showScheduleCountModal, setShowScheduleCountModal] = useState(false);
+  const [showReconcileCountModal, setShowReconcileCountModal] = useState(false);
+  const [showCountDetailsModal, setShowCountDetailsModal] = useState(false);
+  
+  interface ScheduleCountForm {
+    scheduledAt: string;
+    notes: string;
+    scheduledBy: string;
+    items: { itemId: string; included: boolean }[];
+  }
+
+  const initialScheduleCountForm: ScheduleCountForm = {
+    scheduledAt: '',
+    notes: '',
+    scheduledBy: '',
+    items: []
+  };
+
+  const [scheduleCountForm, setScheduleCountForm] = useState<ScheduleCountForm>(initialScheduleCountForm);
+  const [scheduleCountErrors, setScheduleCountErrors] = useState<Partial<Record<keyof ScheduleCountForm, string>>>({});
   
   interface WasteFormData {
     itemId: string;
@@ -1060,6 +1081,90 @@ export default function InventoryPage() {
     setSupplierFormErrors({});
     setShowAddSupplierModal(true);
   };
+
+  const openScheduleCountModal = () => {
+    setScheduleCountForm({
+      ...initialScheduleCountForm,
+      items: items.map(i => ({ itemId: i.id, included: false }))
+    });
+    setScheduleCountErrors({});
+    setShowScheduleCountModal(true);
+  };
+
+  const openReconcileCountModal = (count: InventoryCount) => {
+    setSelectedCount(count);
+    setShowReconcileCountModal(true);
+  };
+
+  const openCountDetailsModal = (count: InventoryCount) => {
+    setSelectedCount(count);
+    setShowCountDetailsModal(true);
+  };
+
+  const handleScheduleCountChange = (field: keyof ScheduleCountForm, value: string | { itemId: string; included: boolean }[]) => {
+    setScheduleCountForm(prev => ({ ...prev, [field]: value }));
+    if (scheduleCountErrors[field]) {
+      setScheduleCountErrors(prev => {
+        const next = { ...prev };
+        delete next[field];
+        return next;
+      });
+    }
+  };
+
+  const validateScheduleCountForm = (): boolean => {
+    const errors: Partial<Record<keyof ScheduleCountForm, string>> = {};
+    
+    if (!scheduleCountForm.scheduledAt) errors.scheduledAt = 'Please select a scheduled date';
+    if (!scheduleCountForm.scheduledBy.trim()) errors.scheduledBy = 'Please enter who is scheduling this count';
+    
+    const selectedItems = scheduleCountForm.items.filter(i => i.included);
+    if (selectedItems.length === 0) {
+      // @ts-ignore
+      errors.items = 'At least one item must be selected for counting';
+    }
+
+    setScheduleCountErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
+  const handleScheduleCount = useCallback(() => {
+    if (!validateScheduleCountForm()) return;
+
+    const selectedItems = scheduleCountForm.items.filter(i => i.included);
+    const newCount: InventoryCount = {
+      id: `c${Date.now()}`,
+      status: 'pending',
+      scheduledAt: new Date(scheduleCountForm.scheduledAt),
+      items: selectedItems.map(i => ({
+        itemId: i.itemId,
+        expected: items.find(item => item.id === i.itemId)?.quantity || 0,
+        counted: 0,
+        variance: 0
+      })),
+      userId: 'u1',
+      notes: scheduleCountForm.notes || undefined
+    };
+
+    const newAuditEntry: AuditLogEntry = {
+      id: `a${Date.now()}`,
+      action: 'CREATE',
+      entityType: 'InventoryCount',
+      entityId: newCount.id,
+      newValue: JSON.stringify({
+        items: selectedItems.length,
+        scheduledAt: newCount.scheduledAt
+      }),
+      userId: 'u1',
+      userName: scheduleCountForm.scheduledBy,
+      createdAt: new Date(),
+    };
+    setAuditLogs(prev => [newAuditEntry, ...prev]);
+
+    setScheduleCountForm(initialScheduleCountForm);
+    setScheduleCountErrors({});
+    setShowScheduleCountModal(false);
+  }, [scheduleCountForm, items]);
 
   const tabs: { id: TabView; label: string }[] = [
     { id: 'overview', label: 'Overview' },
