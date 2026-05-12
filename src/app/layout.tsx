@@ -20,6 +20,7 @@ export default function RootLayout({
       </head>
       <body>
         <div className="app-container">
+          <div id="network-status" className="fixed top-0 left-0 right-0 z-50 px-4 py-2 text-center text-xs font-medium transition-all duration-300" aria-live="polite"></div>
           <Sidebar />
           <main className="main-content">
             <Header />
@@ -28,6 +29,7 @@ export default function RootLayout({
             </div>
           </main>
         </div>
+        <script src="/network-status.js"></script>
       </body>
     </html>
   );
